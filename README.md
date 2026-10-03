@@ -58,3 +58,27 @@ This path has not yet been run on a headset. Its resolution scale, ray-step budg
 and gesture gains in `src/xr.js` are first guesses that need tuning on a device.
 Compared with the native visionOS renderer it has no passthrough, no eye-tracked
 foveation and no in-space control window.
+
+## Library of Babel
+
+`babel.html` is the Library of Babel world: the same galleries, books and addresses
+as the app. Whatever follows `#` in the address is the place on screen, in the code
+the app's address bar takes, with where you stand added after `~`:
+
+```
+babel.html#borges:7K2M-9QXD:2.4.17.112~0.00,1.77,0,-3
+```
+
+so a copied link opens the same room, book, page and view anywhere. `?tourStep=N`
+(0 to 10) opens on a tour stop.
+
+| Web | Native |
+| --- | --- |
+| `src/babel/library.js` | `Worlds/Babel/BabelLibrary.swift`, `BabelAddress.swift` |
+| `src/babel/world.js` | `Worlds/Babel/BabelWorld.swift` |
+| `src/babel/shader.js` | `Worlds/Shaders/Babel.metal` |
+| `src/babel/main.js`, `tour.js` | `Worlds/Babel/BabelViews.swift` and the shared world screen |
+
+The two versions must produce the same book for the same address. `node
+web/babel-test.mjs` checks the JavaScript against `babel-vectors.txt`, a list of
+addresses with the answers the Swift version gives.

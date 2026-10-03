@@ -1,0 +1,304 @@
+// The gallery's measurements, walking, and what the shader is told:
+// the counterpart of BabelWorld.swift. A scene is
+// { place, x, z, yaw, pitch, zoom }, where `place` is as in library.js.
+import * as L from './library.js';
+
+export const SLAB = 0.45;
+export const VESTIBULE = 1.2;
+export const VESTIBULE_HALF = 1.2;
+export const DOOR_HALF = 0.6;
+export const STAIR_Z = 0.74;
+export const STAIR_RADIUS = 0.44;
+export const MARGIN = 0.10;
+export const EYE = 1.62;
+export const LENS = 1.5;
+
+const DIRECTIONS = [[1, 0, 0], [0, 1, 0], [-1, 1, 0], [-1, 0, 0], [0, -1, 0], [1, -1, 0]];
+
+const rotate = (p, a) => [Math.cos(a) * p[0] - Math.sin(a) * p[1], Math.sin(a) * p[0] + Math.cos(a) * p[1]];
+
+/** The measurements of a gallery and its vestibules; the shader uses the same. */
+export function geometry(design) {
+  const n = design.sides;
+  const open = n - design.walls;
+  const slope = Math.tan(Math.PI / n);
+  // Wide enough for the shelf of books, and for a doorway.
+  const wanted = ((design.volumes * 0.075) / 2 + MARGIN) / slope;
+  const apothem = Math.min(Math.max(wanted, 1.9, 0.85 / slope), 7.0);
+  const g = {
+    n, open, apothem,
+    height: design.height / 10,
+    halfWall: apothem * slope,
+    shaft: 0.36 * apothem,
+    angle: wall => (2 * Math.PI * wall) / n,
+    normal: wall => [Math.cos(g.angle(wall)), Math.sin(g.angle(wall))],
+    // The k-th wall without shelves: opposite pairs, spread round the room.
+    openWall: k => {
+      const pairs = Math.floor((open + 1) / 2);
+      return Math.floor((Math.floor(k / 2) * (n / 2)) / pairs) + (k % 2 === 1 ? n / 2 : 0);
+    },
+    isOpen: wall => {
+      for (let k = 0; k < open; ++k) { if (g.openWall(k) === wall) { return true; } }
+      return false;
+    },
+    shelvedIndex: wall => {
+      let count = 0;
+      for (let j = 0; j < wall; ++j) { if (!g.isOpen(j)) { count += 1; } }
+      return count;
+    },
+    wallOfShelved: index => {
+      const shelved = [];
+      for (let j = 0; j < n; ++j) { if (!g.isOpen(j)) { shelved.push(j); } }
+      return shelved[index];
+    },
+    direction: (wall, floorTurn) => DIRECTIONS[(Math.floor((wall * 6) / n) + floorTurn) % 6],
+    reach: p => {
+      let most = -Infinity;
+      for (let i = 0; i < n; ++i) {
+        const normal = g.normal(i);
+        most = Math.max(most, p[0] * normal[0] + p[1] * normal[1]);
+      }
+      return most;
+    },
+    isInGallery: p => g.reach(p) <= apothem,
+    /** Whether a person may stand at a point of the floor. */
+    allows: p => {
+      const most = g.reach(p);
+      if (most <= apothem - 0.28) { return most >= g.shaft + 0.22; }
+      for (let k = 0; k < open; ++k) {
+        const wall = g.openWall(k);
+        const q = rotate(p, -g.angle(wall));
+        if (!(q[0] > apothem - 0.3 && Math.abs(q[1]) <= VESTIBULE_HALF)) { continue; }
+        const x = q[0] - apothem - VESTIBULE;
+        const side = wall < n / 2 ? 1 : -1;
+        if (x < -VESTIBULE + 0.28) { return Math.abs(q[1]) <= DOOR_HALF - 0.2; }
+        if (x > VESTIBULE - 0.28) {
+          return g.isOpen((wall + n / 2) % n) && Math.abs(q[1]) <= DOOR_HALF - 0.2 && x < VESTIBULE + 0.3;
+        }
+        const fromStair = Math.hypot(x, q[1] - side * STAIR_Z);
+        return Math.abs(q[1]) <= VESTIBULE_HALF - 0.25 && fromStair >= STAIR_RADIUS + 0.22;
+      }
+      return false;
+    },
+  };
+  return g;
+}
+
+/** Stands the viewer in front of the chosen book, or at the usual spot. */
+export function standSensibly(scene) {
+  const p = scene.place;
+  const g = geometry(p.design);
+  if (L.hasBook(p)) {
+    const normal = g.normal(g.wallOfShelved(p.wall - 1));
+    const tangent = [-normal[1], normal[0]];
+    const usable = g.halfWall - MARGIN;
+    const across = ((p.volume - 0.5) / p.design.volumes) * 2 * usable - usable;
+    const back = Math.max(g.shaft + 0.3, g.apothem - 1.25);
+    const along = (across * back) / g.apothem;
+    let spot = [normal[0] * back + tangent[0] * along, normal[1] * back + tangent[1] * along];
+    if (!g.allows(spot)) { spot = [normal[0] * back, normal[1] * back]; }
+    scene.x = spot[0];
+    scene.z = spot[1];
+    scene.yaw = Math.atan2(-normal[0], -normal[1]);
+    const shelfHeight = (g.height - 2 * MARGIN) / p.design.shelves;
+    const bookY = g.height - MARGIN - (p.shelf - 0.5) * shelfHeight;
+    scene.pitch = Math.atan2(bookY - EYE, g.apothem - back);
+  } else {
+    // In a corner, between the railing and the shelves, facing the shaft.
+    const corner = g.angle(1) + Math.PI / g.n;
+    const radius = (g.shaft + g.apothem) / 2 / Math.cos(Math.PI / g.n);
+    scene.x = radius * Math.cos(corner);
+    scene.z = radius * Math.sin(corner);
+    scene.yaw = Math.atan2(scene.x, scene.z);
+    scene.pitch = -0.06;
+  }
+}
+
+/** A scene at a place, standing where `view` says or somewhere sensible. */
+export function sceneAt(place, view = null, zoom = 1) {
+  const scene = { place, x: 0, z: 0, yaw: 0, pitch: 0, zoom };
+  if (view) {
+    Object.assign(scene, view);
+  } else {
+    standSensibly(scene);
+  }
+  if (!geometry(place.design).allows([scene.x, scene.z])) { standSensibly(scene); }
+  return scene;
+}
+
+export function clearBook(place) {
+  place.wall = 0;
+  place.shelf = 0;
+  place.volume = 0;
+  place.page = 0;
+}
+
+/** Forgets a chosen book that the design no longer has room for. */
+export function tidy(place) {
+  const d = place.design;
+  if (place.wall > d.walls || place.shelf > d.shelves || place.volume > d.volumes) { clearBook(place); }
+  place.page = Math.min(place.page, d.pages);
+}
+
+/** Walks the viewer: `forward` and `right` in metres, `up` in floors. */
+export function walk(scene, forward, right, up) {
+  const p = scene.place;
+  // A reader stays put.
+  if (p.page > 0) { return; }
+  const g = geometry(p.design);
+
+  if (up !== 0) {
+    const next = p.offset[2] + (up > 0 ? 1 : -1);
+    if (Math.abs(next) < 1e15) {
+      p.offset = [p.offset[0], p.offset[1], next];
+      clearBook(p);
+    }
+    return;
+  }
+
+  const ahead = [-Math.sin(scene.yaw), -Math.cos(scene.yaw)];
+  const across = [Math.cos(scene.yaw), -Math.sin(scene.yaw)];
+  const delta = [ahead[0] * forward + across[0] * right, ahead[1] * forward + across[1] * right];
+  // Slide along whatever is in the way.
+  const tries = [
+    [scene.x + delta[0], scene.z + delta[1]], [scene.x + delta[0], scene.z], [scene.x, scene.z + delta[1]],
+  ];
+  let there = tries.find(spot => g.allows(spot));
+  if (!there) { return; }
+
+  // Past the middle of a vestibule the next gallery takes over.
+  for (let k = 0; k < g.open; ++k) {
+    const wall = g.openWall(k);
+    const back = (wall + g.n / 2) % g.n;
+    const q = rotate(there, -g.angle(wall));
+    if (!(q[0] > g.apothem + VESTIBULE && Math.abs(q[1]) <= VESTIBULE_HALF && g.isOpen(back))) { continue; }
+    const turn = L.roomOf(p)?.floorTurn ?? 0;
+    const step = g.direction(wall, turn);
+    const offset = [p.offset[0] + step[0], p.offset[1] + step[1], p.offset[2]];
+    if (!(Math.abs(offset[0]) < 2 ** 50 && Math.abs(offset[1]) < 2 ** 50)) { return; }
+    p.offset = offset;
+    const fromMiddle = q[0] - g.apothem - VESTIBULE;
+    there = rotate([g.apothem + VESTIBULE - fromMiddle, -q[1]], g.angle(back));
+    scene.yaw -= g.angle(back) - g.angle(wall) + Math.PI;
+    clearBook(p);
+    break;
+  }
+  scene.x = there[0];
+  scene.z = there[1];
+}
+
+export const eyeHeight = scene => Math.min(EYE, geometry(scene.place.design).height - 0.2);
+
+function rotateView(v, yaw, pitch) {
+  const sp = Math.sin(pitch), cp = Math.cos(pitch);
+  const x = [v[0], cp * v[1] - sp * v[2], sp * v[1] + cp * v[2]];
+  const sy = Math.sin(yaw), cy = Math.cos(yaw);
+  return [cy * x[0] + sy * x[2], x[1], -sy * x[0] + cy * x[2]];
+}
+
+/**
+ * The book on the shelves under a point of the view, in the viewer's own
+ * gallery: { wall, shelf, volume } counting from 1, or null. `u` and `v` run
+ * from −1 to 1 across the shorter side of the view, v upward.
+ */
+export function bookUnder(scene, u, v) {
+  const p = scene.place;
+  const d = p.design;
+  const g = geometry(d);
+  if (!g.isInGallery([scene.x, scene.z])) { return null; }
+  const lens = LENS * scene.zoom;
+  const local = [u * 0.72 * lens, v * 0.72 * lens, -1.65];
+  const size = Math.hypot(...local);
+  const direction = rotateView(local.map(c => c / size), scene.yaw, scene.pitch);
+  const origin = [scene.x, eyeHeight(scene), scene.z];
+
+  let best = Infinity;
+  let hitWall = 0;
+  for (let i = 0; i < g.n; ++i) {
+    const normal = g.normal(i);
+    const denominator = direction[0] * normal[0] + direction[2] * normal[1];
+    if (!(denominator > 1e-6)) { continue; }
+    const t = (g.apothem - (origin[0] * normal[0] + origin[2] * normal[1])) / denominator;
+    if (t < best) { best = t; hitWall = i; }
+  }
+  if (!Number.isFinite(best) || g.isOpen(hitWall)) { return null; }
+  const hit = origin.map((c, i) => c + direction[i] * best);
+  const normal = g.normal(hitWall);
+  const across = -hit[0] * normal[1] + hit[2] * normal[0];
+  const usable = g.halfWall - MARGIN;
+  const y0 = MARGIN;
+  const y1 = g.height - MARGIN;
+  if (!(Math.abs(across) < usable && hit[1] > y0 && hit[1] < y1)) { return null; }
+  const shelf = Math.min(Math.floor((y1 - hit[1]) / ((y1 - y0) / d.shelves)), d.shelves - 1);
+  const volume = Math.min(Math.floor((across + usable) / ((2 * usable) / d.volumes)), d.volumes - 1);
+  const wallIndex = g.shelvedIndex(hitWall);
+  const slot = (wallIndex * d.shelves + shelf) * d.volumes + volume;
+  if (!(slot < (L.roomOf(p)?.bookCount ?? 0))) { return null; }
+  return { wall: wallIndex + 1, shelf: shelf + 1, volume: volume + 1 };
+}
+
+/** The twenty-four numbers handed to the shader, as listed in Babel.metal. */
+export function shaderValues(scene) {
+  const p = scene.place;
+  const d = p.design;
+  const g = geometry(d);
+  const room = L.roomOf(p);
+  const high = room?.high ?? 0;
+  return [
+    scene.x, eyeHeight(scene), scene.z, LENS * scene.zoom,
+    g.n, g.apothem, g.height, d.walls,
+    d.shelves, d.volumes, d.uniform ? 1 : 0, room?.bookCount ?? 0,
+    room?.low[0] ?? 0, room?.low[1] ?? 0, room?.low[2] ?? 0, room?.floorTurn ?? 0,
+    high & 0xffff, high >>> 16, d.key,
+    // A library of a few books has only the one room.
+    L.charactersPerBook(d) * Math.log2(d.alphabet) > 40 ? 1 : 0,
+    p.wall - 1, p.shelf - 1, p.volume - 1, p.page > 0 ? 1 : 0,
+  ];
+}
+
+export function roomText(place) {
+  const room = L.roomOf(place);
+  if (!room) { return 'nowhere'; }
+  if (room.integers) { return `column ${room.integers[0]}, row ${room.integers[1]}, floor ${room.integers[2]}`; }
+  return 'too far to count';
+}
+
+/** How one book looks in the hand; drawn from the same hash as its spine. */
+export function bookLook(place) {
+  if (place.design.uniform) {
+    return {
+      cover: 'rgb(92, 51, 31)', paper: 'rgb(237, 227, 204)', ink: 'rgb(20, 18, 15)',
+      font: 'Courier, monospace', weight: 400,
+    };
+  }
+  const hash = L.bookHash(place);
+  const value = 0.12 + 0.55 * L.unit(hash, 5) * L.unit(hash, 5);
+  // The shelves are lit by lamps; the hand holds it in better light.
+  const cover = hsv(L.unit(hash, 3), 0.25 + 0.65 * L.unit(hash, 4), value ** 0.45);
+  const warmth = L.unit(hash, 30);
+  const shade = 0.84 + 0.14 * L.unit(hash, 31);
+  const paper = rgb([shade, shade - 0.03 - 0.05 * warmth, shade - 0.06 - 0.14 * warmth]);
+  const inks = [[0.07, 0.06, 0.06], [0.20, 0.11, 0.05], [0.06, 0.10, 0.24], [0.26, 0.06, 0.08], [0.07, 0.18, 0.12]];
+  const fonts = [
+    'Menlo, Monaco, Consolas, monospace', '"Courier New", Courier, monospace', 'Courier, monospace',
+    'ui-monospace, SFMono-Regular, Consolas, monospace', 'ui-monospace, SFMono-Regular, Consolas, monospace',
+  ];
+  const weights = [300, 400, 400, 500, 600];
+  return {
+    cover,
+    paper,
+    ink: rgb(inks[Math.floor(L.unit(hash, 32) * 4.999)]),
+    font: fonts[Math.floor(L.unit(hash, 33) * 4.999)],
+    weight: weights[Math.floor(L.unit(hash, 34) * 4.999)],
+  };
+}
+
+const rgb = c => `rgb(${c.map(v => Math.round(255 * Math.min(Math.max(v, 0), 1))).join(', ')})`;
+
+function hsv(h, s, v) {
+  const channel = shift => {
+    const k = ((h + shift) % 1) * 6;
+    return v * (1 - s + s * Math.min(Math.max(Math.abs(k - 3) - 1, 0), 1));
+  };
+  return rgb([channel(0), channel(2 / 3), channel(1 / 3)]);
+}

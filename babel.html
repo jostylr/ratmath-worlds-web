@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#010103">
+  <title>RatMath Worlds: Library of Babel</title>
+  <meta name="description" content="Borges's Library of Babel: walk its galleries, take any book down, and find the shelf of any text. Every address is a link.">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="babel.css">
+</head>
+<body>
+  <canvas id="view" tabindex="0" role="img"
+          aria-label="A gallery of the Library of Babel. Drag to look round, use W A S D to walk, click a book to read it."></canvas>
+
+  <form id="bar" class="panel" autocomplete="off">
+    <div class="line">
+      <input id="address" type="text" spellcheck="false" autocapitalize="off" autocorrect="off"
+             placeholder="design:room:wall.shelf.volume.page" aria-label="Address">
+      <button type="submit" class="plain" aria-label="Go to this address" title="Go">➜</button>
+      <button type="button" id="random" class="plain" aria-label="Go to a random room" title="Random room">⚄</button>
+      <button type="button" id="search" class="plain" aria-label="Find a text" title="Find a text">⌕</button>
+      <button type="button" id="copy" class="plain" aria-label="Copy a link to this spot" title="Copy link">⧉</button>
+    </div>
+    <p id="failure" class="caption" role="alert" hidden></p>
+  </form>
+
+  <dialog id="find" class="panel">
+    <form id="findForm">
+      <h2 class="compact">Find a text</h2>
+      <p class="caption">Type a line, or paste several: a picture made of characters works too. You are taken to the book that opens with it.</p>
+      <textarea id="findText" rows="8" spellcheck="false" autocapitalize="off"></textarea>
+      <p id="alphabet" class="caption"></p>
+      <div class="buttons">
+        <button type="button" id="findCancel">Cancel</button>
+        <button type="submit" class="prominent">Find the book</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="reader" hidden role="region" aria-label="The book in hand">
+    <div class="volume panel">
+      <header>
+        <div><strong id="bookTitle"></strong><span id="bookWhere" class="caption"></span></div>
+        <button id="putBack">✕ Put back</button>
+      </header>
+      <div id="cover"><div class="leaves"><pre id="page"></pre><pre id="leaf" hidden></pre></div></div>
+      <footer>
+        <button id="previous" aria-label="Previous page">‹</button>
+        <input id="pageSlider" type="range" min="1" max="410" step="1" aria-label="Page">
+        <span id="pageLabel" class="caption numeric"></span>
+        <button id="next" aria-label="Next page">›</button>
+      </footer>
+    </div>
+  </div>
+
+  <aside id="controls" class="panel" aria-label="Controls"></aside>
+  <button id="controlsToggle" class="prominent icon round" aria-label="Hide controls">✕</button>
+  <article id="tourCard" class="panel" aria-live="polite" hidden></article>
+
+  <p id="error" role="alert" hidden></p>
+  <noscript><p id="error">RatMath Worlds needs JavaScript and WebGL 2.</p></noscript>
+
+  <script type="module" src="src/babel/main.js"></script>
+</body>
+</html>

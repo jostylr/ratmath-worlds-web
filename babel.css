@@ -1,0 +1,139 @@
+/* The Library of Babel page; style.css supplies the shared panels and controls. */
+
+#view { cursor: crosshair; }
+#view:active { cursor: grabbing; }
+
+/* Address bar */
+
+#bar {
+  top: calc(var(--gap) + env(safe-area-inset-top));
+  left: calc(var(--gap) + env(safe-area-inset-left));
+  width: 540px;
+  max-width: calc(100vw - 2 * var(--gap) - 60px);
+  padding: 8px 10px 8px 14px;
+  border-radius: 14px;
+  gap: 6px;
+}
+#bar .line { display: flex; align-items: center; gap: 4px; }
+#address {
+  flex: 1;
+  min-width: 0;
+  font: 0.92rem ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: inherit;
+  background: none;
+  border: 0;
+  outline: none;
+}
+button.plain { background: none; padding: 4px 7px; font-size: 1.15rem; line-height: 1; color: var(--accent); }
+#failure { color: #ffb347; }
+
+/* Finding a text */
+
+dialog#find {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  width: 380px;
+  max-width: calc(100vw - 2 * var(--gap));
+  height: fit-content;
+  color: var(--text);
+}
+dialog#find:not([open]) { display: none; }
+dialog#find::backdrop { background: rgba(0, 0, 0, 0.4); }
+#findForm { display: grid; gap: 10px; }
+#findText {
+  width: 100%;
+  resize: vertical;
+  font: 0.8rem/1.25 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: inherit;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px;
+  white-space: pre;
+}
+#alphabet { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
+.buttons { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* Controls */
+
+#controls .back { color: var(--accent); font-size: 0.82rem; font-weight: 600; text-decoration: none; }
+#controls section > header { display: flex; justify-content: space-between; align-items: center; }
+#controls .info { background: none; padding: 0 2px; color: var(--accent); font-size: 1rem; }
+#controls label.row { flex-wrap: wrap; }
+#controls label.row input[type="range"] { flex-basis: 100%; }
+#controls label.row.check { flex-wrap: nowrap; }
+#controls.touring { display: none; }
+.pad { display: flex; gap: 6px; }
+.pad button { flex: 1; text-align: center; padding: 7px 0; touch-action: none; user-select: none; }
+.readout { display: flex; justify-content: space-between; gap: 8px; font-size: 0.8rem; }
+.readout span:first-child { color: var(--secondary); }
+.readout span:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* Tour card */
+
+#tourCard header, #tourCard footer { display: flex; align-items: center; gap: 10px; }
+#tourCard header { justify-content: space-between; }
+#tourCard .body { display: grid; gap: 0.7em; max-height: 200px; overflow-y: auto; font-size: 0.95rem; }
+#tourCard .body p { margin: 0; }
+@media (max-aspect-ratio: 5/6) {
+  #tourCard { left: var(--gap); right: var(--gap); width: auto; }
+}
+
+/* The book in hand */
+
+#reader {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.45);
+}
+/* During the tour the caption keeps its corner. */
+#reader.touring { z-index: 0; }
+#reader.touring.wide { justify-content: flex-end; }
+#reader.touring:not(.wide) { align-items: flex-start; }
+
+.volume { position: static; gap: 10px; max-width: 100%; max-height: 100%; overflow: visible; }
+.volume header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.volume header div { display: grid; min-width: 0; }
+#bookTitle {
+  font: 600 0.95rem ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.volume footer { display: flex; align-items: center; gap: 12px; }
+.volume footer input { flex: 1; min-width: 60px; }
+.volume footer button { text-align: center; min-width: 36px; }
+
+/* The cover shows round the block of pages, thicker at the spine. */
+#cover {
+  padding: 8px 8px 8px 14px;
+  border-radius: 6px;
+  background: var(--cover);
+  box-shadow: 0 10px 36px rgba(0, 0, 0, 0.6);
+  touch-action: pan-y;
+}
+.leaves { position: relative; perspective: 1800px; }
+#page, #leaf {
+  margin: 0;
+  padding: 18px;
+  font: var(--weight) var(--size) / 1.24 var(--font);
+  color: var(--ink);
+  background: var(--paper);
+  white-space: pre;
+  overflow: hidden;
+}
+#leaf {
+  position: absolute;
+  inset: 0;
+  transform-origin: left center;
+  transition: transform 0.38s ease-in-out;
+  backface-visibility: hidden;
+  box-shadow: 4px 0 14px rgba(0, 0, 0, 0.25);
+}
+@media (prefers-reduced-motion: reduce) { #leaf { transition-duration: 0.01s; } }
