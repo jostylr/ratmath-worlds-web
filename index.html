@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#010103">
+  <title>RatMath Worlds: Mandelbulb</title>
+  <meta name="description" content="Explore the Mandelbulb: a shape made by repeating one rule, drawn live in your browser.">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <canvas id="view" tabindex="0" role="img"
+          aria-label="Interactive Mandelbulb. Drag to rotate, pinch or scroll to zoom, double-tap to fly to a spot."></canvas>
+
+  <aside id="explorer" class="panel" aria-label="Orbit explorer" hidden></aside>
+  <aside id="controls" class="panel" aria-label="Controls"></aside>
+  <button id="controlsToggle" class="prominent icon round" aria-label="Hide controls">✕</button>
+  <nav id="modeButtons"></nav>
+  <article id="tourCard" class="panel" aria-live="polite" hidden></article>
+
+  <p id="error" role="alert" hidden></p>
+  <noscript><p id="error">RatMath Worlds needs JavaScript and WebGL 2.</p></noscript>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
