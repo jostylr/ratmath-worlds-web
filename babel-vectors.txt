@@ -10,7 +10,8 @@ reals:=1/7 | reals:=1/7:4.4.28.1 | big | 178,214,16 | 3228233760 | 0 | 640 | 377
 reals:=0.25 | reals:=25/100:2.4.1.1 | big | 70,-224,271 | 959070232 | 4 | 640 | 1703093421 | 250738702 | gggggggggggggggggggggggggggggggggggggggg | gggggggggggggggggggg | gggggggggggggggggggggggg
 borges:=1/7 | borges:=1/7:3.4.5.1 | big | 244,138,148 | 2691949649 | 5 | 640 | 3235112437 | 3147203323 | dqhdqhdqhdqhdqhdqhdqhdqhdqhdqhdqhdqhdqhd | dqhdqhdqhdqhdqhdqhdq | dqhdqhdqhdqhdqhdqhdqhdqh
 seeds:5:1.1.1.1 | seeds:5:1.1.1.1 | 3,0,0 | 3,0,0 | 3944382430 | 0 | 640 | 2543985527 | 125764086 | dvtonslttnhllrm,xsanvbnd,lhdypoqhac,srql | vpc.ft,na.xeuvfmicre | dvtonslttnhllrm,xsanvbnd
-w5.a29:ZZ:5.1.1.2 | w5.a29:ZZ:5.1.1.2 | -4,-3,1 | -4,-3,1 | 3944382430 | 1 | 800 | 3262378459 | 293671037 | y.wmu,jiycloqm,lyvuqqe.,hxqufmoemktek.pm |  xiovrj.kyycbdwolbwl | nwxvixg.kuhiuyfktlxdgqk,
+w3.a29:ZZ:3.1.1.2 | w3.a29:ZZ:3.1.1.2 | -4,-3,1 | -4,-3,1 | 3944382430 | 1 | 480 | 3262378459 | 1534034620 | tgwqhlmxyroee,mczmiha eeqkwsnekoxzxmva.l | uktpjgpedlcfcdfwjy.t | mkehlabisyjggzeqkvbtvmgo
+w9:@1,1,1:4.1.1.1 | borges:MB:4.1.1.1 | 1,1,1 | 1,1,1 | 3944382430 | 1 | 640 | 327364239 | 3507739305 | fttgoenlpt.rdcsaesvo,pgomnxflnbecstaqeo  | ahe hdd,eqxivmhnudcy | fttgoenlpt.rdcsaesvo,pgo
 basile:'hello, world.' | basile:'hello,_world.':3.5.1.1 | big | 349,-226,253 | 3697552608 | 0 | 640 | 3026962416 | 905813346 | hello, world.                            |                      | hello, world.
 g8.w6.s7.v20.h34.k7:@3,2,1:6.7.20.1 | g8.w6.s7.v20.k7.h34:P1:6.7.20.1 | 3,2,1 | 3,2,1 | 3944382430 | 1 | 840 | 1315949256 | 1401806288 |  atupin,gxfcdu,ssgg  udpgviln xx.f.oeic, | hlag fegqeaxhi.ddxbb | atupin,gxfcdu,ssgg  udp
 a2.p2.l3.c5:1Z:1.1.2.2 | p2.l3.c5.a2:1Z:1.1.2.2 | 2,2,2 | 2,2,2 | 3944382430 | 2 | 640 | 1346534232 | 1136319922 | a  a  |  a  a | a  a  aaa   a aa  a

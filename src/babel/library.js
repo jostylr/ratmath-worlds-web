@@ -40,7 +40,6 @@ export const BORGES = Object.freeze({
 
 const PRESETS = [
   ['borges', BORGES],
-  ['borges41', { ...BORGES, walls: 5 }],
   ['basile', { ...BORGES, alphabet: 29 }],
   ['reals', { ...BORGES, mode: 1 }],
   ['seeds', { ...BORGES, mode: 2 }],
@@ -60,7 +59,8 @@ export function normalized(design) {
   for (const [, name] of FIELDS) { d[name] = Math.round(Number(d[name]) || 0); }
   // Borges: triangular and pentagonal rooms are inconceivable.
   d.sides = clamp(2 * Math.floor(d.sides / 2), 4, 12);
-  d.walls = clamp(d.walls, 1, d.sides - 1);
+  // Every room keeps at least two ways out.
+  d.walls = clamp(d.walls, 1, d.sides - 2);
   d.shelves = clamp(d.shelves, 1, 12);
   d.volumes = clamp(d.volumes, 1, 80);
   d.pages = clamp(d.pages, 1, 1000);

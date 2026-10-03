@@ -158,15 +158,25 @@ export function walk(scene, forward, right, up) {
 
   const ahead = [-Math.sin(scene.yaw), -Math.cos(scene.yaw)];
   const across = [Math.cos(scene.yaw), -Math.sin(scene.yaw)];
-  const delta = [ahead[0] * forward + across[0] * right, ahead[1] * forward + across[1] * right];
-  // Slide along whatever is in the way.
+  move(scene, [ahead[0] * forward + across[0] * right, ahead[1] * forward + across[1] * right]);
+}
+
+/**
+ * Moves the viewer across the floor, sliding along whatever is in the way.
+ * Returns { moved, crossing }, where `crossing` carries a point of the old
+ * gallery's floor into the frame of the gallery beyond the doorway crossed.
+ */
+export function move(scene, delta) {
+  const p = scene.place;
+  const g = geometry(p.design);
   const tries = [
     [scene.x + delta[0], scene.z + delta[1]], [scene.x + delta[0], scene.z], [scene.x, scene.z + delta[1]],
   ];
   let there = tries.find(spot => g.allows(spot));
-  if (!there) { return; }
+  if (!there) { return { moved: false, crossing: null }; }
 
   // Past the middle of a vestibule the next gallery takes over.
+  let crossing = null;
   for (let k = 0; k < g.open; ++k) {
     const wall = g.openWall(k);
     const back = (wall + g.n / 2) % g.n;
@@ -175,16 +185,36 @@ export function walk(scene, forward, right, up) {
     const turn = L.roomOf(p)?.floorTurn ?? 0;
     const step = g.direction(wall, turn);
     const offset = [p.offset[0] + step[0], p.offset[1] + step[1], p.offset[2]];
-    if (!(Math.abs(offset[0]) < 2 ** 50 && Math.abs(offset[1]) < 2 ** 50)) { return; }
+    if (!(Math.abs(offset[0]) < 2 ** 50 && Math.abs(offset[1]) < 2 ** 50)) { return { moved: false, crossing: null }; }
     p.offset = offset;
-    const fromMiddle = q[0] - g.apothem - VESTIBULE;
-    there = rotate([g.apothem + VESTIBULE - fromMiddle, -q[1]], g.angle(back));
+    crossing = point => {
+      const inWall = rotate(point, -g.angle(wall));
+      return rotate([2 * (g.apothem + VESTIBULE) - inWall[0], -inWall[1]], g.angle(back));
+    };
+    there = crossing(there);
     scene.yaw -= g.angle(back) - g.angle(wall) + Math.PI;
     clearBook(p);
     break;
   }
   scene.x = there[0];
   scene.z = there[1];
+  return { moved: true, crossing };
+}
+
+/**
+ * One pace toward a point of the floor. Returns the point in the frame now in
+ * force, or null once the viewer has arrived or can get no nearer.
+ */
+export function pace(scene, target, length) {
+  const distance = Math.hypot(target[0] - scene.x, target[1] - scene.z);
+  if (!(distance > 0.06)) { return null; }
+  const scale = Math.min(length, distance) / distance;
+  const result = move(scene, [(target[0] - scene.x) * scale, (target[1] - scene.z) * scale]);
+  if (!result.moved) { return null; }
+  const goal = result.crossing ? result.crossing(target) : target;
+  const left = Math.hypot(goal[0] - scene.x, goal[1] - scene.z);
+  // Sliding along a wall that brings the goal no nearer is being stuck.
+  return left < distance - length * 0.2 ? goal : null;
 }
 
 export const eyeHeight = scene => Math.min(EYE, geometry(scene.place.design).height - 0.2);
@@ -194,6 +224,17 @@ function rotateView(v, yaw, pitch) {
   const x = [v[0], cp * v[1] - sp * v[2], sp * v[1] + cp * v[2]];
   const sy = Math.sin(yaw), cy = Math.cos(yaw);
   return [cy * x[0] + sy * x[2], x[1], -sy * x[0] + cy * x[2]];
+}
+
+/** The line of sight through a point of the view: { origin, direction }. */
+export function sight(scene, u, v) {
+  const lens = LENS * scene.zoom;
+  const local = [u * 0.72 * lens, v * 0.72 * lens, -1.65];
+  const size = Math.hypot(...local);
+  return {
+    origin: [scene.x, eyeHeight(scene), scene.z],
+    direction: rotateView(local.map(c => c / size), scene.yaw, scene.pitch),
+  };
 }
 
 /**
@@ -206,11 +247,7 @@ export function bookUnder(scene, u, v) {
   const d = p.design;
   const g = geometry(d);
   if (!g.isInGallery([scene.x, scene.z])) { return null; }
-  const lens = LENS * scene.zoom;
-  const local = [u * 0.72 * lens, v * 0.72 * lens, -1.65];
-  const size = Math.hypot(...local);
-  const direction = rotateView(local.map(c => c / size), scene.yaw, scene.pitch);
-  const origin = [scene.x, eyeHeight(scene), scene.z];
+  const { origin, direction } = sight(scene, u, v);
 
   let best = Infinity;
   let hitWall = 0;
@@ -235,6 +272,72 @@ export function bookUnder(scene, u, v) {
   const slot = (wallIndex * d.shelves + shelf) * d.volumes + volume;
   if (!(slot < (L.roomOf(p)?.bookCount ?? 0))) { return null; }
   return { wall: wallIndex + 1, shelf: shelf + 1, volume: volume + 1 };
+}
+
+/**
+ * What a line of sight asks for when it lands on something other than a book:
+ * { floor: point } to walk to, { floor: foot, climb: ±1 } for a stair,
+ * { climb: ±1 } for the shaft, or null.
+ */
+export function aimUnder(scene, u, v) {
+  const g = geometry(scene.place.design);
+  const { origin, direction } = sight(scene, u, v);
+  const here = [origin[0], origin[2]];
+  const flat = [direction[0], direction[2]];
+  const dot = (a, b) => a[0] * b[0] + a[1] * b[1];
+  const point = t => [here[0] + flat[0] * t, here[1] + flat[1] * t];
+  const doorHeight = Math.min(2.1, g.height - 0.25);
+  const toFloor = direction[1] < -1e-6 ? -origin[1] / direction[1] : Infinity;
+  const toCeiling = direction[1] > 1e-6 ? (g.height - origin[1]) / direction[1] : Infinity;
+
+  // From inside the gallery the line must leave by a doorway to reach
+  // anything beyond its walls.
+  let doorway = null;
+  if (g.isInGallery(here)) {
+    let toWall = Infinity;
+    let wall = 0;
+    for (let i = 0; i < g.n; ++i) {
+      const denominator = dot(flat, g.normal(i));
+      if (!(denominator > 1e-6)) { continue; }
+      const t = (g.apothem - dot(here, g.normal(i))) / denominator;
+      if (t < toWall) { toWall = t; wall = i; }
+    }
+    if (Math.min(toFloor, toCeiling) < toWall) {
+      const landing = point(Math.min(toFloor, toCeiling));
+      const overShaft = g.reach(landing) < g.shaft;
+      if (toCeiling < toFloor) { return overShaft ? { climb: 1 } : null; }
+      return overShaft ? { climb: -1 } : { floor: landing };
+    }
+    const normal = g.normal(wall);
+    const across = dot(point(toWall), [-normal[1], normal[0]]);
+    const height = origin[1] + direction[1] * toWall;
+    if (!(g.isOpen(wall) && Math.abs(across) < DOOR_HALF && height < doorHeight)) { return null; }
+    doorway = wall;
+  }
+
+  // The stair of the vestibule in view.
+  for (let k = 0; k < g.open; ++k) {
+    const wall = g.openWall(k);
+    const inside = rotate(here, -g.angle(wall))[0] > g.apothem;
+    if (!(doorway === wall || (doorway === null && inside))) { continue; }
+    const side = wall < g.n / 2 ? 1 : -1;
+    const middle = g.apothem + VESTIBULE;
+    const centre = rotate([middle, side * STAIR_Z], g.angle(wall));
+    const offset = [here[0] - centre[0], here[1] - centre[1]];
+    const a = dot(flat, flat);
+    const b = dot(offset, flat);
+    const h = b * b - a * (dot(offset, offset) - STAIR_RADIUS * STAIR_RADIUS);
+    if (!(h > 0 && a > 1e-9)) { continue; }
+    const t = Math.max((-b - Math.sqrt(h)) / a, 0);
+    const height = origin[1] + direction[1] * t;
+    if (!(t < toFloor && ((height >= 0 && height <= g.height) || t === 0))) { continue; }
+    // Beside the stair, on the near side of the vestibule's middle.
+    const foot = rotate([middle - 0.12, side * (STAIR_Z - STAIR_RADIUS - 0.3)], g.angle(wall));
+    return { floor: foot, climb: height > 1.25 ? 1 : -1 };
+  }
+
+  if (!(Number.isFinite(toFloor) && toFloor * Math.hypot(...flat) < 16)) { return null; }
+  return { floor: point(toFloor) };
 }
 
 /** The twenty-four numbers handed to the shader, as listed in Babel.metal. */

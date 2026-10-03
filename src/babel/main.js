@@ -356,11 +356,19 @@ canvas.addEventListener('pointerup', event => {
   const fit = Math.min(aspect, 1);
   const u = ((((event.clientX - box.left) / box.width) * 2 - 1) * aspect) / fit;
   const v = (1 - ((event.clientY - box.top) / box.height) * 2) / fit;
+  stroll = null;
   const hit = W.bookUnder(scene, u, v);
   if (hit) {
     cancelAnimation();
     Object.assign(scene.place, hit, { page: 1 });
     changed();
+    return;
+  }
+  // Anything else that can be walked on or climbed is somewhere to go.
+  const aim = W.aimUnder(scene, u, v);
+  if (aim) {
+    cancelAnimation();
+    stroll = { goal: aim.floor ?? null, climb: aim.climb ?? 0 };
   }
 });
 canvas.addEventListener('pointercancel', () => { drag = null; });
@@ -406,10 +414,33 @@ window.addEventListener('keydown', event => {
 window.addEventListener('keyup', event => held.delete(event.key.toLowerCase()));
 window.addEventListener('blur', () => held.clear());
 
+/** The walk a click has set going: { goal, climb }. */
+let stroll = null;
+
+function stepStroll(dt) {
+  if (!stroll) { return; }
+  if (scene.place.page > 0 || tourIndex !== null || held.size > 0) {
+    stroll = null;
+    return;
+  }
+  if (stroll.goal) {
+    // Short paces, however long the frame took, so no wall is stepped over.
+    for (let left = dt; left > 0 && stroll.goal; left -= 0.03) {
+      stroll.goal = W.pace(scene, stroll.goal, 3.3 * Math.min(left, 0.03));
+    }
+  } else {
+    if (stroll.climb !== 0) { W.walk(scene, 0, 0, stroll.climb); }
+    stroll = null;
+  }
+  changed();
+}
+
 let lastFrame = null;
 function stepWalk(now) {
-  const dt = lastFrame === null ? 0 : Math.min((now - lastFrame) / 1000, 0.05);
+  const elapsed = lastFrame === null ? 0 : (now - lastFrame) / 1000;
+  const dt = Math.min(elapsed, 0.05);
   lastFrame = now;
+  stepStroll(Math.min(elapsed, 0.5));
   if (held.size === 0 || scene.place.page > 0 || tourIndex !== null) { return; }
   let forward = 0;
   let right = 0;
@@ -429,6 +460,7 @@ function stepWalk(now) {
 const NOTES = {
   Walk: [
     'The arrows, or W A S D, walk you about the gallery. Drag to look round. The walls without shelves open onto a vestibule, and beyond it the next gallery. Up and down, or E and Q, take the spiral stair to the floor above or below.',
+    'Click the floor to walk to that spot, through a doorway if need be. Click the stair to climb or go down it, and click up or down the shaft to change floor at once.',
     'Click a book to take it down and read it. Its address appears at the top: design, room, then wall, shelf, volume and page. Type any address there to go to it. The address of this page always holds the same thing, with where you stand.',
   ],
   Books: [
@@ -437,7 +469,7 @@ const NOTES = {
     'Make the books small enough and you can read the whole library: 2 symbols and 4 characters gives 16 books.',
   ],
   Rooms: [
-    'Borges’s galleries are hexagons. Four walls carry five shelves of thirty-two books, 640 to a room; the other two open onto vestibules. His first edition shelved five walls and left one way out, which makes every floor a set of dead ends joined only by the stairs: set Shelved walls to 5 to see it.',
+    'Borges’s galleries are hexagons. Four walls carry five shelves of thirty-two books, 640 to a room; the other two open onto vestibules. His first edition shelved five walls and left one way out, which would make every floor a set of dead ends joined only by the stairs. Here a room always keeps at least two doorways.',
     'Rooms need an even number of sides here, so that each doorway faces one in the next room. Every room is furnished from a number worked out from where it is, so no two look alike, and each looks the same whenever you return. Uniform gives the library of the story, where every room and every book is like every other.',
   ],
   View: ['Zoom narrows the view like a longer lens; it does not move you. Reset takes you back to the middle of Borges’s library.'],
@@ -453,7 +485,7 @@ const SLIDERS = {
   ],
   Rooms: [
     ['Sides', 'sides', 4, 12, 2, String],
-    ['Shelved walls', 'walls', 1, 11, 1, String],
+    ['Shelved walls', 'walls', 1, 10, 1, String],
     ['Shelves on a wall', 'shelves', 1, 12, 1, String],
     ['Books on a shelf', 'volumes', 1, 80, 1, String],
     ['Ceiling', 'height', 20, 60, 1, v => (v / 10).toFixed(1) + ' m'],
