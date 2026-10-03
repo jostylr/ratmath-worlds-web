@@ -15,11 +15,21 @@ python3 -m http.server 8000 --directory web
 Then visit <http://localhost:8000>. Opening `index.html` straight from disk does
 not work, because browsers refuse to load JavaScript modules from `file://`.
 
-To publish it, copy this folder to any static host (GitHub Pages, Netlify, an S3
-bucket). A headset needs the page served over `https`.
-
 `?tourStep=N` (0 to 10) opens directly on that tour stop and `?explorer=1` opens in
 the orbit explorer, mirroring the native launch arguments.
+
+## Publish it
+
+The repository includes a GitHub Pages workflow
+(`.github/workflows/pages.yml`) that publishes this folder whenever a push to
+`main` changes it. After pushing the repository to GitHub, switch it on once under
+**Settings → Pages → Source: GitHub Actions**. The site then appears at
+`https://<user>.github.io/<repository>/`. Pages on a private repository needs a
+paid GitHub plan.
+
+All paths in the page are relative, so the folder also works unchanged on any
+other static host. A headset needs the page served over `https`, which Pages
+provides.
 
 ## How it maps to the native app
 
