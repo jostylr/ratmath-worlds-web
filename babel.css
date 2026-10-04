@@ -137,3 +137,33 @@ dialog#find::backdrop { background: rgba(0, 0, 0, 0.4); }
   box-shadow: 4px 0 14px rgba(0, 0, 0, 0.25);
 }
 @media (prefers-reduced-motion: reduce) { #leaf { transition-duration: 0.01s; } }
+
+/* The art gallery: its bar and the label of a picture stack at the top left. */
+
+#top {
+  position: fixed;
+  top: calc(var(--gap) + env(safe-area-inset-top));
+  left: calc(var(--gap) + env(safe-area-inset-left));
+  width: 540px;
+  max-width: calc(100vw - 2 * var(--gap) - 60px);
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+  pointer-events: none;
+}
+#top > * { pointer-events: auto; }
+#top #bar, #top #label { position: static; width: 100%; max-width: 100%; }
+#formulaRow { border-top: 1px solid var(--line); padding-top: 6px; gap: 8px; }
+#formula {
+  flex: 1;
+  min-width: 0;
+  font: 0.92rem ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: inherit;
+  background: none;
+  border: 0;
+  outline: none;
+}
+#label { max-width: 380px !important; padding: 12px 14px; border-radius: 14px; gap: 6px; }
+#label header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+#labelLines { display: grid; gap: 6px; font-size: 0.8rem; color: var(--secondary); }
+#labelLines p { margin: 0; }

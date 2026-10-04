@@ -65,7 +65,9 @@ function draw() {
   gl.useProgram(program);
   gl.uniform2f(uniforms.uResolution, width, height);
   gl.uniform2f(uniforms.uCamera, scene.yaw, clamp(scene.pitch, -1.45, 1.45));
-  gl.uniform4fv(uniforms.uV, new Float32Array(W.shaderValues(scene)));
+  const values = new Float32Array(32);
+  values.set(W.shaderValues(scene));
+  gl.uniform4fv(uniforms.uV, values);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
 }
 
@@ -509,7 +511,7 @@ const readout = (title, id) => `<div class="readout"><span>${title}</span><span 
 
 function buildControls() {
   $('controls').innerHTML = `
-    <a class="back" href="index.html">‹ Mandelbulb</a>
+    <a class="back" href="index.html">‹ Mandelbulb</a> <a class="back" href="gallery.html">Art gallery ›</a>
     <div><p class="eyebrow">Library of Babel</p><h2 class="compact">25 symbols, 1,312,000 to a book: every book, once</h2></div>
     <button id="tourStart">▶ Guided tour</button>
     ${section('Walk', `<div class="pad">${PAD.map(([symbol, label, key]) =>

@@ -1,4 +1,4 @@
-// Babel.metal in GLSL, written by web/make-shaders.py from the app's Metal
+// Gallery.metal in GLSL, written by web/make-shaders.py from the app's Metal
 // shaders. Do not edit: change the Metal files and run the script again.
 
 export const VERTEX = `#version 300 es
@@ -256,91 +256,307 @@ vec3 bStone(vec2 p, BabelStyle s, uint seed) {
 
 
 
-// A wall of shelves. u runs left to right as seen from inside the room.
-BabelSurface bShelves(
+#define G_PI 3.14159265
+
+vec3 gPalette(float t, uint h) {
+    vec3 phase = vec3(bUnit(h, 40u), bUnit(h, 41u), bUnit(h, 42u));
+    vec3 rate = vec3(1.0, 0.6 + 0.8 * bUnit(h, 43u), 0.6 + 0.8 * bUnit(h, 44u));
+    return 0.5 + 0.5 * cos(2.0 * G_PI * (rate * t + phase));
+}
+
+// MARK: Schemes. Each takes a point with x and y from −1 to 1.
+
+// Waves bent by other waves.
+vec3 gPlasma(vec2 p, uint h) {
+    float a = bUnit(h, 1u) * 2.0 * G_PI;
+    vec2 q = p * (1.5 + 2.5 * bUnit(h, 2u));
+    for (int i = 0; i < 3; ++i) {
+        q += 0.6 * vec2(sin(q.y * 1.7 + a + float(i)), cos(q.x * 1.3 - a * 0.7 + 2.0 * float(i)));
+    }
+    float v = sin(q.x + q.y) + sin(length(q) * 1.5);
+    return gPalette(0.25 * v + bUnit(h, 3u), h);
+}
+
+// Truchet tiles: every square holds two quarter circles, turned one of two ways.
+vec3 gTruchet(vec2 p, uint h) {
+    float n = 3.0 + floor(bUnit(h, 1u) * 8.0);
+    vec2 g = (p * 0.5 + 0.5) * n;
+    vec2 cell = floor(g);
+    vec2 f = g - cell;
+    uint id = bCombine(bCombine(h, uint(int(cell.x))), uint(int(cell.y)));
+    if (bUnit(id, 1u) > 0.5) { f.x = 1.0 - f.x; }
+    float d = min(abs(length(f) - 0.5), abs(length(f - 1.0) - 0.5));
+    float width = 0.08 + 0.12 * bUnit(h, 2u);
+    vec3 ground = gPalette(bUnit(h, 3u), h) * 0.9 + 0.1;
+    vec3 line = gPalette(bUnit(h, 3u) + 0.5, h) * 0.35;
+    return mix(line, ground, smoothstep(width - 0.02, width + 0.02, d));
+}
+
+// A rectangle cut in two, and the pieces cut again, a few of them painted.
+vec3 gMondrian(vec2 p, uint h) {
+    vec2 lo = vec2(-1.0);
+    vec2 hi = vec2(1.0);
+    uint id = h;
+    float edge = 1.0;
+    for (int depth = 0; depth < 5; ++depth) {
+        vec2 size = hi - lo;
+        if (depth > 1 && bUnit(id, 1u) < 0.25) { break; }
+        bool vertical = size.x * (0.6 + 0.8 * bUnit(id, 2u)) > size.y;
+        float cut = 0.3 + 0.4 * bUnit(id, 3u);
+        if (vertical) {
+            float at = lo.x + size.x * cut;
+            edge = min(edge, abs(p.x - at));
+            if (p.x < at) { hi.x = at; id = bCombine(id, 1u); } else { lo.x = at; id = bCombine(id, 2u); }
+        } else {
+            float at = lo.y + size.y * cut;
+            edge = min(edge, abs(p.y - at));
+            if (p.y < at) { hi.y = at; id = bCombine(id, 3u); } else { lo.y = at; id = bCombine(id, 4u); }
+        }
+    }
+    float pick = bUnit(id, 5u);
+    vec3 color = vec3(0.93, 0.92, 0.88);
+    if (pick > 0.86) { color = vec3(0.80, 0.12, 0.10); }
+    else if (pick > 0.74) { color = vec3(0.10, 0.22, 0.60); }
+    else if (pick > 0.62) { color = vec3(0.92, 0.76, 0.12); }
+    return edge < 0.028 ? vec3(0.05) : color;
+}
+
+// An elementary cellular automaton: each row is made from the row above by
+// a rule that looks at a cell and its two neighbours.
+vec3 gAutomaton(vec2 p, uint h) {
+    const uint rules[16] = uint[16](30u, 90u, 110u, 54u, 60u, 73u, 105u, 150u,
+                             126u, 22u, 45u, 18u, 182u, 122u, 146u, 62u);
+    uint rule = rules[uint(bUnit(h, 1u) * 15.999)];
+    int column = clamp(int((p.x * 0.5 + 0.5) * 32.0), 0, 31);
+    int row = clamp(int((0.5 - p.y * 0.5) * 32.0), 0, 31);
+    // Half start from one live cell, half from a scatter of them.
+    uint cells = bUnit(h, 2u) > 0.5 ? 0x00010000u : bMix(h ^ 0xa5a5u);
+    for (int j = 0; j < row; ++j) {
+        uint left = (cells << 1) | (cells >> 31);
+        uint right = (cells >> 1) | (cells << 31);
+        uint next = 0u;
+        for (uint k = 0u; k < 8u; ++k) {
+            if (((rule >> k) & 1u) != 0u) {
+                next |= ((k & 4u) != 0u ? left : ~left) & ((k & 2u) != 0u ? cells : ~cells)
+                    & ((k & 1u) != 0u ? right : ~right);
+            }
+        }
+        cells = next;
+    }
+    bool live = ((cells >> uint(31 - column)) & 1u) != 0u;
+    vec3 paper = gPalette(bUnit(h, 3u), h) * 0.25 + 0.72;
+    vec3 ink = gPalette(bUnit(h, 3u) + 0.45, h) * 0.45;
+    return live ? ink : paper;
+}
+
+// A Julia set: points whose path under z → z² + c stays near.
+vec3 gJulia(vec2 p, uint h) {
+    float angle = bUnit(h, 1u) * 2.0 * G_PI;
+    vec2 c = 0.7885 * vec2(cos(angle), sin(angle));
+    vec2 z = p * 1.5;
+    float n = 0.0;
+    for (int i = 0; i < 64; ++i) {
+        z = vec2(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y) + c;
+        if (dot(z, z) > 64.0) { break; }
+        n += 1.0;
+    }
+    if (n > 63.5) { return vec3(0.03, 0.03, 0.05); }
+    float level = n + 1.0 - log2(max(log2(dot(z, z)) * 0.5, 1e-4));
+    return gPalette(0.035 * level + bUnit(h, 3u), h);
+}
+
+// A rose, r = |cos kθ|, filled with rings.
+vec3 gRose(vec2 p, uint h) {
+    float k = 2.0 + floor(bUnit(h, 1u) * 7.0);
+    float rings = 2.0 + floor(bUnit(h, 2u) * 6.0);
+    float r = length(p);
+    float petal = abs(cos(0.5 * k * atan(p.y, p.x)));
+    vec3 ground = gPalette(bUnit(h, 3u) + 0.5, h) * 0.2 + 0.05;
+    if (r > 0.95 * petal) { return ground; }
+    float band = floor(r / max(0.95 * petal, 1e-3) * rings) / rings;
+    return gPalette(band * 0.6 + bUnit(h, 3u), h);
+}
+
+// Whole-number games: x and y combined bit by bit, then a remainder taken.
+vec3 gBits(vec2 p, uint h) {
+    uint size = 32u << uint(bUnit(h, 1u) * 2.999);
+    uint ix = uint(clamp((p.x * 0.5 + 0.5) * float(size), 0.0, float(size) - 1.0));
+    uint iy = uint(clamp((p.y * 0.5 + 0.5) * float(size), 0.0, float(size) - 1.0));
+    uint op = uint(bUnit(h, 2u) * 3.999);
+    uint value = op == 0u ? (ix ^ iy) : (op == 1u ? (ix & iy) : (op == 2u ? (ix | iy) : ix * iy));
+    uint modulus = 3u + uint(bUnit(h, 4u) * 28.999);
+    return gPalette(float(value % modulus) / float(modulus) + bUnit(h, 3u), h);
+}
+
+// Voronoi cells: each point takes the colour of the nearest of a scatter of sites.
+vec3 gVoronoi(vec2 p, uint h) {
+    float n = 3.0 + floor(bUnit(h, 1u) * 6.0);
+    vec2 g = (p * 0.5 + 0.5) * n;
+    vec2 cell = floor(g);
+    float best = 1e9;
+    float second = 1e9;
+    uint bestId = 0u;
+    for (int j = -1; j <= 1; ++j) {
+        for (int i = -1; i <= 1; ++i) {
+            vec2 other = cell + vec2(float(i), float(j));
+            uint id = bCombine(bCombine(h, uint(int(other.x))), uint(int(other.y)));
+            vec2 site = other + vec2(bUnit(id, 1u), bUnit(id, 2u));
+            float d = length(g - site);
+            if (d < best) { second = best; best = d; bestId = id; }
+            else if (d < second) { second = d; }
+        }
+    }
+    vec3 color = gPalette(bUnit(bestId, 3u) * 0.5 + bUnit(h, 3u), h);
+    return second - best < 0.05 ? color * 0.25 : color;
+}
+
+float gNoise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = p - i;
+    f = f * f * (3.0 - 2.0 * f);
+    uint a = bCombine(uint(int(i.x)), uint(int(i.y)));
+    uint b = bCombine(uint(int(i.x) + 1), uint(int(i.y)));
+    uint c = bCombine(uint(int(i.x)), uint(int(i.y) + 1));
+    uint d = bCombine(uint(int(i.x) + 1), uint(int(i.y) + 1));
+    return mix(mix(bUnit(a, 1u), bUnit(b, 1u), f.x), mix(bUnit(c, 1u), bUnit(d, 1u), f.x), f.y) * 2.0 - 1.0;
+}
+
+// The visitor's own formula, in reverse Polish: each step pushes a number or
+// combines the top of the stack. One number left over is a place on a colour
+// wheel; three are red, green and blue.
+vec3 gFormula(vec2 p, uint h, WorldValues P, int count) {
+    float stack[8];
+    int top = 0;
+    float t = bUnit(h, 1u);
+    float u = bUnit(h, 2u);
+    for (int i = 0; i < count; ++i) {
+        int triple = int(P.v[6 + i / 12][(i / 3) % 4] + 0.5);
+        int op = i % 3 == 0 ? triple % 64 : (i % 3 == 1 ? (triple / 64) % 64 : triple / 4096);
+        float value = 0.0;
+        bool push = true;
+        if (op == 1) { value = p.x; }
+        else if (op == 2) { value = p.y; }
+        else if (op == 3) { value = length(p); }
+        else if (op == 4) { value = atan(p.y, p.x) / G_PI; }
+        else if (op == 5) { value = t; }
+        else if (op == 6) { value = u; }
+        else if (op >= 10 && op <= 19) { value = float(op - 10); }
+        else if (op == 31) { value = top > 0 ? stack[top - 1] : 0.0; }
+        else { push = false; }
+        if (push) {
+            if (top < 8) { stack[top] = value; top += 1; }
+            continue;
+        }
+        if (top < 1) { continue; }
+        float b = stack[top - 1];
+        if ((op >= 24 && op <= 28) || op == 34 || op == 36 || op == 37 || op == 38 || op == 40) {
+            float r = b;
+            if (op == 24) { r = sin(G_PI * b); }
+            else if (op == 25) { r = cos(G_PI * b); }
+            else if (op == 26) { r = sqrt(abs(b)); }
+            else if (op == 27) { r = abs(b); }
+            else if (op == 28) { r = b - floor(b); }
+            else if (op == 34) { r = exp(clamp(b, -20.0, 20.0)); }
+            else if (op == 36) { r = abs(b) > 1e-6 ? 1.0 / b : 0.0; }
+            else if (op == 37) { r = b > 0.0 ? 1.0 : 0.0; }
+            else if (op == 38) { r = floor(b); }
+            else { r = -b; }
+            stack[top - 1] = r;
+            continue;
+        }
+        if (top < 2) { continue; }
+        float a = stack[top - 2];
+        float r = 0.0;
+        if (op == 20) { r = a + b; }
+        else if (op == 21) { r = a - b; }
+        else if (op == 22) { r = a * b; }
+        else if (op == 23) { r = abs(b) > 1e-6 ? a / b : 0.0; }
+        else if (op == 29) { r = min(a, b); }
+        else if (op == 30) { r = max(a, b); }
+        else if (op == 33) { r = gNoise(vec2(a, b)); }
+        else if (op == 35) { r = pow(abs(a), clamp(b, -8.0, 8.0)); }
+        else if (op == 39) { r = abs(b) > 1e-6 ? a - b * floor(a / b) : 0.0; }
+        else if (op == 32) {
+            stack[top - 2] = b;
+            stack[top - 1] = a;
+            continue;
+        }
+        stack[top - 2] = r;
+        top -= 1;
+    }
+    if (top >= 3) {
+        vec3 rgb = vec3(stack[top - 3], stack[top - 2], stack[top - 1]);
+        return clamp(0.5 + 0.5 * rgb, 0.0, 1.0);
+    }
+    float value = top > 0 ? stack[top - 1] : 0.0;
+    if ((isnan(value) || isinf(value))) { value = 0.0; }
+    return gPalette(0.5 * value, h);
+}
+
+vec3 gArt(vec2 p, uint h, int scheme, WorldValues P, int count) {
+    // A mixed gallery lets each picture choose.
+    int kind = scheme == 0 ? 1 + int(bUnit(h, 50u) * 7.999) : scheme;
+    switch (kind) {
+        case 1: return gPlasma(p, h);
+        case 2: return gTruchet(p, h);
+        case 3: return gMondrian(p, h);
+        case 4: return gAutomaton(p, h);
+        case 5: return gJulia(p, h);
+        case 6: return gRose(p, h);
+        case 7: return gBits(p, h);
+        case 8: return gVoronoi(p, h);
+        default: return gFormula(p, h, P, count);
+    }
+}
+
+// A wall of pictures. u runs left to right as seen from inside the room.
+BabelSurface gPictures(
     float u, float y, int wallIndex, uint seed, BabelStyle style, BabelDesign D, bool here,
     vec3 outward, vec3 along, WorldValues P, ivec3 off
 ) {
     BabelSurface result;
     result.normal = -outward;
-    result.gloss = 0.15;
+    result.gloss = 0.05;
     result.glow = vec3(0.0);
-
-    float y0 = B_MARGIN;
-    float y1 = D.H - B_MARGIN;
-    float usable = D.hw - B_MARGIN;
-    if (abs(u) > usable || y < y0 || y > y1) {
-        result.albedo = style.wood * 1.25;
+    // Pale plaster, tinted by the room's own stone.
+    result.albedo = mix(vec3(0.84, 0.83, 0.80), style.stone * 1.6, 0.30);
+    if (y < 0.14) {
+        result.albedo = vec3(0.92);
         return result;
     }
 
-    float shelfHeight = (y1 - y0) / float(D.shelves);
-    float fs = (y1 - y) / shelfHeight;
-    int shelf = clamp(int(fs), 0, D.shelves - 1);
-    float within = fs - float(shelf);
-    float board = 0.035 / shelfHeight;
-    if (within > 1.0 - board) {
-        result.albedo = style.wood * 1.5;
-        return result;
+    // The scheme of the floor this room is on.
+    int scheme = ((int(P.v[5].x + 0.5) + off.z) % 10 + 10) % 10;
+    int count = int(P.v[5].y + 0.5);
+
+    float usable = D.hw - 0.25;
+    float y0 = 0.55;
+    float y1 = D.H - 0.35;
+    float cellWidth = 2.0 * usable / float(D.vols);
+    float cellHeight = (y1 - y0) / float(D.shelves);
+    if (abs(u) >= usable || y <= y0 || y >= y1) { return result; }
+    int column = clamp(int((u + usable) / cellWidth), 0, D.vols - 1);
+    int row = clamp(int((y1 - y) / cellHeight), 0, D.shelves - 1);
+    uint h = bCombine(bCombine(bCombine(seed, uint(wallIndex)), uint(row)), uint(column));
+
+    float halfWidth = min(cellWidth * 0.5 - 0.12, 0.85) * (0.72 + 0.28 * bUnit(h, 60u));
+    float halfHeight = min(halfWidth * (0.7 + 0.6 * bUnit(h, 61u)), cellHeight * 0.5 - 0.14);
+    vec2 q = vec2(u + usable - (float(column) + 0.5) * cellWidth,
+                      y - (y1 - (float(row) + 0.5) * cellHeight));
+    vec2 e = abs(q) - vec2(halfWidth, halfHeight);
+    float frame = 0.05 + 0.04 * bUnit(h, 62u);
+    if (max(e.x, e.y) < 0.0) {
+        vec3 art = gArt(q / vec2(halfWidth, halfHeight), h, scheme, P, count);
+        result.albedo = art;
+        // A picture light over each frame.
+        result.glow = art * 0.45;
+    } else if (max(e.x, e.y) < frame) {
+        result.albedo = bUnit(h, 63u) > 0.5 ? vec3(0.62, 0.47, 0.18) : vec3(0.10, 0.09, 0.08);
+        result.gloss = 0.5;
+        result.normal = normalize(-outward + (e.x > e.y ? along * sign(q.x) : vec3(0.0, sign(q.y), 0.0)) * 0.6);
+    } else if (e.x < frame && e.y > 0.0 && e.y < frame + 0.07 && q.y < 0.0) {
+        result.albedo *= 0.82; // the shadow under a frame
     }
-    float opening = shelfHeight * (1.0 - board);
-    float above = (1.0 - board - within) * shelfHeight;
-
-    float pitch = 2.0 * usable / float(D.vols);
-    float fu = (u + usable) / pitch;
-    int vol = clamp(int(fu), 0, D.vols - 1);
-    float a = fu - float(vol);
-
-    int slot = (wallIndex * D.shelves + shelf) * D.vols + vol;
-    bool exists = here ? slot < D.limit : D.othersFull;
-    bool chosen = here && int(D.chosen.x) == wallIndex && int(D.chosen.y) == shelf
-        && int(D.chosen.z) == vol;
-    if (chosen && D.taken) { exists = false; }
-
-    uint bh = bCombine(bCombine(bCombine(seed, uint(wallIndex)), uint(shelf)), uint(vol));
-    float thickness = D.plain ? 0.90 : 0.55 + 0.43 * bUnit(bh, 1u);
-    float height = D.plain ? 0.88 : 0.58 + 0.40 * bUnit(bh, 2u);
-    float start = (1.0 - thickness) * (D.plain ? 0.5 : bUnit(bh, 9u));
-    float aa = (a - start) / thickness;
-    float bb = above / (height * opening);
-
-    if (exists && aa > 0.0 && aa < 1.0 && bb < 1.0) {
-        vec3 cover = D.plain
-            ? vec3(0.17, 0.09, 0.05)
-            : bHSV(bUnit(bh, 3u), 0.25 + 0.65 * bUnit(bh, 4u),
-                   0.12 + 0.55 * bUnit(bh, 5u) * bUnit(bh, 5u));
-        float bands = D.plain ? 0.6 : bUnit(bh, 6u);
-        float label = D.plain ? 0.2 : bUnit(bh, 7u);
-        vec3 gold = vec3(0.80, 0.62, 0.26);
-
-        vec3 albedo = cover * (0.72 + 0.28 * smoothstep(0.0, 0.18, min(aa, 1.0 - aa)));
-        float gloss = 0.1 + 0.5 * bUnit(bh, 8u);
-        if (bands > 0.45) {
-            bool band = (bb > 0.10 && bb < 0.125) || (bb > 0.875 && bb < 0.90);
-            if (bands > 0.75) { band = band || (bb > 0.20 && bb < 0.212) || (bb > 0.79 && bb < 0.802); }
-            if (band) { albedo = gold; gloss = 0.9; }
-        }
-        if (label > 0.35 && bb > 0.50 && bb < 0.78 && aa > 0.12 && aa < 0.88) {
-            vec3 paper = label > 0.7 ? vec3(0.74, 0.68, 0.54) : cover * 0.45;
-            vec3 ink = label > 0.7 ? vec3(0.10, 0.07, 0.05) : gold;
-            // The title runs down the spine: a column of small marks.
-            float row = (bb - 0.52) / 0.24 * 9.0;
-            bool mark = row > 0.0 && row < 9.0 && fract(row) < 0.62 && aa > 0.28 && aa < 0.72
-                && bUnit(bh, 20u + uint(int(row))) > 0.3;
-            albedo = mark ? ink : paper;
-            gloss = 0.1;
-        }
-        result.albedo = albedo;
-        result.gloss = gloss;
-        // A rounded spine.
-        result.normal = normalize(-outward + along * ((aa - 0.5) * 1.3));
-        if (chosen) { result.glow = cover * 0.5 + vec3(0.10, 0.08, 0.04); }
-        return result;
-    }
-
-    // The dark of the shelf behind and above the books.
-    result.albedo = style.wood * (0.10 + 0.30 * (1.0 - above / opening));
-    result.gloss = 0.0;
     return result;
 }
 
@@ -535,7 +751,7 @@ void main() {
                     surface.albedo = frame ? style.wood * 1.6 : bStone(vec2(across, p.y), style, seed);
                     surface.normal = vec3(-nn.x, 0.0, -nn.y);
                 } else {
-                    surface = bShelves(across, p.y, bShelvedIndex(wall, D.n, D.open), seed, style, D,
+                    surface = gPictures(across, p.y, bShelvedIndex(wall, D.n, D.open), seed, style, D,
                                          here, vec3(nn.x, 0.0, nn.y), vec3(tt.x, 0.0, tt.y), P, off);
                 }
             }

@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#010103">
+  <title>RatMath Worlds: Art gallery</title>
+  <meta name="description" content="An endless gallery of pictures that nobody painted: each is worked out from a rule and the place it hangs. Every address is a link.">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="babel.css">
+</head>
+<body>
+  <canvas id="view" tabindex="0" role="img"
+          aria-label="A room of the art gallery. Drag to look round, use W A S D to walk, click a picture to stand before it."></canvas>
+
+  <div id="top">
+    <form id="bar" class="panel" autocomplete="off">
+      <div class="line">
+        <input id="address" type="text" spellcheck="false" autocapitalize="off" autocorrect="off"
+               placeholder="design:column,row,floor:wall.picture" aria-label="Address">
+        <button type="submit" class="plain" aria-label="Go to this address" title="Go">➜</button>
+        <button type="button" id="random" class="plain" aria-label="Go to a random room" title="Random room">⚄</button>
+        <button type="button" id="copy" class="plain" aria-label="Copy a link to this spot" title="Copy link">⧉</button>
+      </div>
+      <label id="formulaRow" class="line" hidden>
+        <span class="caption">Formula</span>
+        <input id="formula" type="text" spellcheck="false" autocapitalize="off" autocorrect="off"
+               placeholder="xy*4*s" aria-label="Formula">
+      </label>
+      <p id="failure" class="caption" role="alert" hidden></p>
+    </form>
+    <div id="label" class="panel" hidden>
+      <header><strong id="labelTitle"></strong><button id="stepBack" class="plain" aria-label="Step back">✕</button></header>
+      <div id="labelLines"></div>
+    </div>
+  </div>
+
+  <aside id="controls" class="panel" aria-label="Controls"></aside>
+  <button id="controlsToggle" class="prominent icon round" aria-label="Hide controls">✕</button>
+  <article id="tourCard" class="panel" aria-live="polite" hidden></article>
+
+  <p id="error" role="alert" hidden></p>
+  <noscript><p id="error">RatMath Worlds needs JavaScript and WebGL 2.</p></noscript>
+
+  <script type="module" src="src/gallery/main.js"></script>
+</body>
+</html>

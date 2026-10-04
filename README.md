@@ -76,9 +76,36 @@ so a copied link opens the same room, book, page and view anywhere. `?tourStep=N
 | --- | --- |
 | `src/babel/library.js` | `Worlds/Babel/BabelLibrary.swift`, `BabelAddress.swift` |
 | `src/babel/world.js` | `Worlds/Babel/BabelWorld.swift` |
-| `src/babel/shader.js` | `Worlds/Shaders/Babel.metal` |
+| `src/babel/shader.js` | `Worlds/Shaders/Babel.metal` and the `BabelRoom` headers, by `make-shaders.py` |
 | `src/babel/main.js`, `tour.js` | `Worlds/Babel/BabelViews.swift` and the shared world screen |
 
 The two versions must produce the same book for the same address. `node
 web/babel-test.mjs` checks the JavaScript against `babel-vectors.txt`, a list of
 addresses with the answers the Swift version gives.
+
+## Art gallery
+
+`gallery.html` is the art gallery world: the library's rooms hung with pictures that
+are worked out from a scheme and the place each frame hangs, a different scheme on
+every floor. The address after `#` is `design:column,row,floor:wall.picture`, as in
+the app, with where you stand after `~`:
+
+```
+gallery.html#g8.w6.v3.s2:0,0,5:2.1
+gallery.html#=xy*4*s:0,0,9
+```
+
+`src/gallery/logic.js` is `Worlds/Gallery/GalleryWorld.swift`, and
+`src/gallery/shader.js` is `Worlds/Shaders/Gallery.metal`.
+
+## Shaders
+
+The library and the gallery are drawn by the same code in the app and here. The
+Metal files are the source, and
+
+```bash
+python3 web/make-shaders.py
+```
+
+rewrites `src/babel/shader.js` and `src/gallery/shader.js` from them. Run it after
+changing `Babel.metal`, `Gallery.metal` or the `BabelRoom` headers.

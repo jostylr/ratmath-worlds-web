@@ -19,15 +19,21 @@ const rotate = (p, a) => [Math.cos(a) * p[0] - Math.sin(a) * p[1], Math.sin(a) *
 
 /** The measurements of a gallery and its vestibules; the shader uses the same. */
 export function geometry(design) {
-  const n = design.sides;
-  const open = n - design.walls;
+  // Wide enough for the shelf of books.
+  const wanted = ((design.volumes * 0.075) / 2 + MARGIN) / Math.tan(Math.PI / design.sides);
+  return roomGeometry(design.sides, design.walls, wanted, design.height / 10);
+}
+
+/**
+ * A room with `furnished` of its walls closed and an apothem of at least
+ * `wanted`: more if a doorway needs it.
+ */
+export function roomGeometry(n, furnished, wanted, height) {
+  const open = n - furnished;
   const slope = Math.tan(Math.PI / n);
-  // Wide enough for the shelf of books, and for a doorway.
-  const wanted = ((design.volumes * 0.075) / 2 + MARGIN) / slope;
   const apothem = Math.min(Math.max(wanted, 1.9, 0.85 / slope), 7.0);
   const g = {
-    n, open, apothem,
-    height: design.height / 10,
+    n, open, apothem, height,
     halfWall: apothem * slope,
     shaft: 0.36 * apothem,
     angle: wall => (2 * Math.PI * wall) / n,
@@ -162,43 +168,54 @@ export function walk(scene, forward, right, up) {
 }
 
 /**
- * Moves the viewer across the floor, sliding along whatever is in the way.
- * Returns { moved, crossing }, where `crossing` carries a point of the old
- * gallery's floor into the frame of the gallery beyond the doorway crossed.
+ * A step across the floor of a room, sliding along whatever is in the way:
+ * { there, turn, room, crossing }, or null if nothing gives. Past the middle
+ * of a vestibule the next gallery takes over: `room` is the step to it,
+ * `turn` what to add to the viewer's yaw, and `crossing` carries any point of
+ * the old gallery's floor into the new one's frame.
  */
-export function move(scene, delta) {
-  const p = scene.place;
-  const g = geometry(p.design);
+export function stepFrom(g, here, delta, floorTurn) {
   const tries = [
-    [scene.x + delta[0], scene.z + delta[1]], [scene.x + delta[0], scene.z], [scene.x, scene.z + delta[1]],
+    [here[0] + delta[0], here[1] + delta[1]], [here[0] + delta[0], here[1]], [here[0], here[1] + delta[1]],
   ];
-  let there = tries.find(spot => g.allows(spot));
-  if (!there) { return { moved: false, crossing: null }; }
-
-  // Past the middle of a vestibule the next gallery takes over.
-  let crossing = null;
+  const there = tries.find(spot => g.allows(spot));
+  if (!there) { return null; }
   for (let k = 0; k < g.open; ++k) {
     const wall = g.openWall(k);
     const back = (wall + g.n / 2) % g.n;
     const q = rotate(there, -g.angle(wall));
     if (!(q[0] > g.apothem + VESTIBULE && Math.abs(q[1]) <= VESTIBULE_HALF && g.isOpen(back))) { continue; }
-    const turn = L.roomOf(p)?.floorTurn ?? 0;
-    const step = g.direction(wall, turn);
-    const offset = [p.offset[0] + step[0], p.offset[1] + step[1], p.offset[2]];
-    if (!(Math.abs(offset[0]) < 2 ** 50 && Math.abs(offset[1]) < 2 ** 50)) { return { moved: false, crossing: null }; }
-    p.offset = offset;
-    crossing = point => {
+    const crossing = point => {
       const inWall = rotate(point, -g.angle(wall));
       return rotate([2 * (g.apothem + VESTIBULE) - inWall[0], -inWall[1]], g.angle(back));
     };
-    there = crossing(there);
-    scene.yaw -= g.angle(back) - g.angle(wall) + Math.PI;
-    clearBook(p);
-    break;
+    return {
+      there: crossing(there),
+      turn: -(g.angle(back) - g.angle(wall) + Math.PI),
+      room: g.direction(wall, floorTurn),
+      crossing,
+    };
   }
-  scene.x = there[0];
-  scene.z = there[1];
-  return { moved: true, crossing };
+  return { there, turn: 0, room: [0, 0, 0], crossing: null };
+}
+
+/**
+ * Moves the viewer across the floor. Returns { moved, crossing }.
+ */
+export function move(scene, delta) {
+  const p = scene.place;
+  const step = stepFrom(geometry(p.design), [scene.x, scene.z], delta, L.roomOf(p)?.floorTurn ?? 0);
+  if (!step) { return { moved: false, crossing: null }; }
+  if (step.crossing) {
+    const offset = [p.offset[0] + step.room[0], p.offset[1] + step.room[1], p.offset[2]];
+    if (!(Math.abs(offset[0]) < 2 ** 50 && Math.abs(offset[1]) < 2 ** 50)) { return { moved: false, crossing: null }; }
+    p.offset = offset;
+    scene.yaw += step.turn;
+    clearBook(p);
+  }
+  scene.x = step.there[0];
+  scene.z = step.there[1];
+  return { moved: true, crossing: step.crossing };
 }
 
 /**
@@ -228,13 +245,15 @@ function rotateView(v, yaw, pitch) {
 
 /** The line of sight through a point of the view: { origin, direction }. */
 export function sight(scene, u, v) {
-  const lens = LENS * scene.zoom;
+  return sightFrom([scene.x, eyeHeight(scene), scene.z], scene, u, v);
+}
+
+/** The same from any eye: `view` supplies yaw, pitch and zoom. */
+export function sightFrom(origin, view, u, v) {
+  const lens = LENS * view.zoom;
   const local = [u * 0.72 * lens, v * 0.72 * lens, -1.65];
   const size = Math.hypot(...local);
-  return {
-    origin: [scene.x, eyeHeight(scene), scene.z],
-    direction: rotateView(local.map(c => c / size), scene.yaw, scene.pitch),
-  };
+  return { origin, direction: rotateView(local.map(c => c / size), view.yaw, view.pitch) };
 }
 
 /**
@@ -280,8 +299,12 @@ export function bookUnder(scene, u, v) {
  * { climb: ±1 } for the shaft, or null.
  */
 export function aimUnder(scene, u, v) {
-  const g = geometry(scene.place.design);
   const { origin, direction } = sight(scene, u, v);
+  return aimAlong(geometry(scene.place.design), origin, direction);
+}
+
+/** The same for any room and any line of sight. */
+export function aimAlong(g, origin, direction) {
   const here = [origin[0], origin[2]];
   const flat = [direction[0], direction[2]];
   const dot = (a, b) => a[0] * b[0] + a[1] * b[1];
