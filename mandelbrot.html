@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#010103">
+  <title>RatMath Worlds: Mandelbrot and Julia sets</title>
+  <meta name="description" content="Square a number, add c, and do it again. Colour each c by whether the answers stay small or run away, and the border between the two has detail at every scale. Every point of it is also the recipe for another picture.">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="worlds.css">
+</head>
+<body>
+  <noscript><p id="error">RatMath Worlds needs JavaScript and WebGL 2.</p></noscript>
+  <script type="module">
+    import { start } from './src/worlds/engine.js';
+    import { world } from './src/worlds/mandelbrot.js';
+    start(world);
+  </script>
+</body>
+</html>

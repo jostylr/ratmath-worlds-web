@@ -49,6 +49,14 @@ export function interpolate(a, b, t, world, direct = false) {
     distance += (1.8 * focusTravel + Math.max(0, 1.2 - closest) * Math.min(turn, 1.0)) * Math.sin(Math.PI * t);
   }
   out.cameraDistance = Math.min(distance, world.cameraDistanceRange[1]);
+  if (world.flatCentre && Math.abs(a.cameraDistance - b.cameraDistance) > 1e-12) {
+    // A flat picture's centre moves in step with its scale, so the spot being
+    // zoomed toward stays put on screen.
+    const w = (out.cameraDistance - b.cameraDistance) / (a.cameraDistance - b.cameraDistance);
+    for (const index of world.flatCentre) {
+      out.values[index] = b.values[index] + (a.values[index] - b.values[index]) * w;
+    }
+  }
   return out;
 }
 
@@ -324,6 +332,7 @@ const MAX_MARKERS = 96;
 
 const PAGE = `
   <canvas id="view" tabindex="0" role="img"></canvas>
+  <div id="labels" aria-hidden="true"></div>
   <aside id="controls" class="panel" aria-label="Controls"></aside>
   <button id="controlsToggle" class="prominent icon round" aria-label="Hide controls">✕</button>
   <nav id="modeButtons"><button id="tourPill" class="prominent pill">▶ Guided tour</button></nav>
@@ -558,9 +567,26 @@ export function start(world) {
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   }
 
+  /** A flat world's own lettering over the picture, such as the numbers
+      along an axis: `labels` gives text and places in CSS pixels. */
+  let labelText = '';
+  function drawLabels() {
+    if (!world.labels) { return; }
+    const labels = world.labels(state, {
+      width: canvas.clientWidth, height: canvas.clientHeight, verticalShift,
+    });
+    const html = labels.map(label =>
+      `<span style="left:${label.x.toFixed(1)}px;top:${label.y.toFixed(1)}px">${escapeHTML(label.text)}</span>`).join('');
+    if (html !== labelText) {
+      labelText = html;
+      $('labels').innerHTML = html;
+    }
+  }
+
   // MARK: The scene, in the page's address
 
-  const round = value => String(Number(finite(value).toFixed(6)));
+  // Flat worlds that zoom far need more digits to name a place.
+  const round = value => String(Number(finite(value).toFixed(world.urlDigits ?? 6)));
   let urlTimer = null;
 
   /** The scene as text: only what differs from the world's defaults. */
@@ -671,6 +697,12 @@ export function start(world) {
   /** Makes the surface point under a place in the picture the centre of the
       view and moves the camera most of the way toward it. */
   function focusAt(x, y) {
+    if (world.zoomTarget) {
+      const viewPoint = Camera.viewPoint(x, y, canvas.clientWidth, canvas.clientHeight, verticalShift);
+      const goal = viewPoint && world.zoomTarget(viewPoint, state, 3);
+      if (goal) { animate([keyframe(goal, 0.9)]); }
+      return;
+    }
     if (!world.distance) { return; }
     const direction = Camera.rayDirection(x, y, canvas.clientWidth, canvas.clientHeight, verticalShift, state);
     const hit = direction && Camera.raycast(Camera.position(state), direction, state, world.distance);
@@ -740,6 +772,17 @@ export function start(world) {
     dragBy(dx / unit, dy / unit);
   });
   const release = event => {
+    if (event.type === 'pointerup' && world.tap && pointers.size === 1 && !pinch
+        && !interactions.has('rotation')) {
+      // A press that never became a drag is a tap on the picture.
+      const box = canvas.getBoundingClientRect();
+      const viewPoint = Camera.viewPoint(event.clientX - box.left, event.clientY - box.top,
+        canvas.clientWidth, canvas.clientHeight, verticalShift);
+      if (viewPoint) {
+        world.tap(state, viewPoint);
+        changed();
+      }
+    }
     pointers.delete(event.pointerId);
     if (pointers.size < 2 && pinch) {
       pinch = null;
@@ -752,7 +795,21 @@ export function start(world) {
   canvas.addEventListener('wheel', event => {
     event.preventDefault();
     setInteraction('zoom', true);
-    setZoom(state.cameraDistance, Math.exp(-event.deltaY * 0.0015));
+    const factor = Math.exp(-event.deltaY * 0.0015);
+    if (world.zoomTarget) {
+      // A flat picture zooms about the pointer.
+      const box = canvas.getBoundingClientRect();
+      const viewPoint = Camera.viewPoint(event.clientX - box.left, event.clientY - box.top,
+        canvas.clientWidth, canvas.clientHeight, verticalShift);
+      const goal = viewPoint && world.zoomTarget(viewPoint, state, clamp(factor, 0.05, 20));
+      if (goal) {
+        animation = null;
+        state = goal;
+        changed();
+      }
+    } else {
+      setZoom(state.cameraDistance, factor);
+    }
     clearTimeout(wheelTimer);
     wheelTimer = setTimeout(() => setInteraction('zoom', false), 200);
   }, { passive: false });
@@ -846,7 +903,7 @@ export function start(world) {
     const zoomRange = [Math.log(world.defaults.cameraDistance / distanceRange[1]),
       Math.log(world.defaults.cameraDistance / distanceRange[0])];
     panel.innerHTML = `
-      <a class="back" href="index.html">‹ All worlds</a>
+      <a class="back" href="${world.shelf?.href ?? 'index.html'}">‹ ${escapeHTML(world.shelf?.title ?? 'All worlds')}</a>
       <div><p class="eyebrow">${escapeHTML(world.title)}</p><h2 class="compact">${escapeHTML(world.formula)}</h2></div>
       <button id="tourStart">▶ Guided tour</button>
       ${world.controlGroups.map(g => section(g.title, g.note, g.controls.map(c => controlHTML(c, id++)).join(''))).join('')}
@@ -1027,6 +1084,7 @@ export function start(world) {
     if (dirty || world.animates) {
       dirty = false;
       draw(now);
+      drawLabels();
     }
     requestAnimationFrame(loop);
   }

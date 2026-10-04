@@ -119,6 +119,22 @@ gallery.html#=xy*4*s:0,0,9
 | `eversion.html` | Sphere eversion | `src/worlds/eversion.js` | `Worlds/Eversion/EversionWorld.swift` |
 | `attractors.html` | Strange attractors | `src/worlds/attractors.js` | `Worlds/Dynamics/AttractorWorld.swift` |
 
+The library's **2D worlds** card opens a second shelf, `flat.html`, of flat pictures
+that are dragged to pan, scrolled or pinched to zoom about the pointer, and
+double-clicked to dive into. Their panels lead back to the shelf.
+
+| Page | World | Web | Native |
+| --- | --- | --- | --- |
+| `mandelbrot.html` | Mandelbrot and Julia sets | `src/worlds/mandelbrot.js` | `Worlds/Flat/MandelbrotWorld.swift` |
+| `logistic.html` | Logistic map | `src/worlds/logistic.js` | `Worlds/Flat/LogisticWorld.swift` |
+| `flatland.html` | Flatland | `src/worlds/flatland.js` | `Worlds/Flat/FlatlandWorld.swift` |
+
+A flat world may also give the engine `flatCentre` (which values hold the centre of
+the view, so that zooms keep their target still), `zoomTarget` (the state a
+double-click or the wheel leads to), `tap`, `labels` (lettering over the picture,
+such as the numbers along the logistic map's axes) and `urlDigits`. They share
+`src/worlds/flat-support.js`.
+
 These all run on `src/worlds/engine.js`, which is `Worlds/Core` for the web: the
 state and its thirty-two numbers, keyframed tours, the control panel built from a
 world's control groups, the orbit camera, and the renderers for glowing lines and

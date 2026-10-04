@@ -19,3 +19,17 @@ button.plain { background: none; padding: 4px 7px; font-size: 1.15rem; line-heig
 #tourCard header { justify-content: space-between; }
 #tourCard .body { display: grid; gap: 0.7em; max-height: 190px; overflow-y: auto; font-size: 0.95rem; }
 #tourCard .body p { margin: 0; }
+
+/* A flat world's lettering over its picture: the numbers along an axis. */
+#labels { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
+#labels span {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  padding: 0 3px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.35);
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
