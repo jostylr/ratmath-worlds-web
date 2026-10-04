@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#010103">
+  <title>RatMath Worlds: Sphere eversion</title>
+  <meta name="description" content="A sphere can be turned inside out if it may pass through itself but must never be torn or creased. It sounds impossible, and it took a proof to find out that it is not. Watch one way of doing it, and stop it anywhere.">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="worlds.css">
+</head>
+<body>
+  <noscript><p id="error">RatMath Worlds needs JavaScript and WebGL 2.</p></noscript>
+  <script type="module">
+    import { start } from './src/worlds/engine.js';
+    import { world } from './src/worlds/eversion.js';
+    start(world);
+  </script>
+</body>
+</html>
