@@ -1,4 +1,4 @@
-// Gallery.metal in GLSL, written by web/make-shaders.py from the app's Metal
+// Gallery.metal in GLSL, written by make-shaders.py from the app's Metal
 // shaders. Do not edit: change the Metal files and run the script again.
 
 export const VERTEX = `#version 300 es

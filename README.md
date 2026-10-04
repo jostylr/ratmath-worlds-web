@@ -4,12 +4,15 @@ The app's worlds as static web pages, drawn with WebGL 2: the same pictures,
 guided tours and control panels as the native app. `index.html` is the library,
 with a card for each world. There is no build step and nothing to install.
 
+The native app (Swift, SwiftUI and Metal, for macOS, iOS and visionOS) is kept in a
+separate repository; the "Native" file names below refer to it.
+
 ## Run it
 
 Serve this folder with any static file server and open it in a browser:
 
 ```bash
-python3 -m http.server 8000 --directory web
+python3 -m http.server 8000
 ```
 
 Then visit <http://localhost:8000>. Opening `index.html` straight from disk does
@@ -22,11 +25,10 @@ after `#`, so a copied link opens the same view.
 ## Publish it
 
 The repository includes a GitHub Pages workflow
-(`.github/workflows/pages.yml`) that publishes this folder whenever a push to
-`main` changes it. After pushing the repository to GitHub, switch it on once under
+(`.github/workflows/pages.yml`) that publishes it on every push to `main`. After
+pushing the repository to GitHub, switch it on once under
 **Settings → Pages → Source: GitHub Actions**. The site then appears at
-`https://<user>.github.io/<repository>/`. Pages on a private repository needs a
-paid GitHub plan.
+`https://<user>.github.io/<repository>/`.
 
 All paths in the page are relative, so the folder also works unchanged on any
 other static host. A headset needs the page served over `https`, which Pages
@@ -84,7 +86,7 @@ so a copied link opens the same room, book, page and view anywhere. `?tourStep=N
 | `src/babel/main.js`, `tour.js` | `Worlds/Babel/BabelViews.swift` and the shared world screen |
 
 The two versions must produce the same book for the same address. `node
-web/babel-test.mjs` checks the JavaScript against `babel-vectors.txt`, a list of
+babel-test.mjs` checks the JavaScript against `babel-vectors.txt`, a list of
 addresses with the answers the Swift version gives.
 
 ## Art gallery
@@ -139,10 +141,15 @@ Apart from the Mandelbulb, every world is drawn by the same shader code in the a
 and here. The Metal files are the source, and
 
 ```bash
-python3 web/make-shaders.py
+python3 shared/make-shaders.py
 ```
 
-rewrites `src/babel/shader.js`, `src/gallery/shader.js` and the files in
+run from the supervisor repository that holds the app and this repository side by
+side, rewrites `src/babel/shader.js`, `src/gallery/shader.js` and the files in
 `src/worlds/shaders/` from them. Run it after changing any `.metal` file or header
 in `Worlds/Shaders`. The shaders for lines and meshes (`WorldLines.metal`,
 `WorldMesh.metal`) are small and written out by hand in `src/worlds/engine.js`.
+
+## Licence
+
+MIT; see [LICENSE](LICENSE).
