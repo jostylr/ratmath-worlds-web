@@ -511,7 +511,7 @@ const readout = (title, id) => `<div class="readout"><span>${title}</span><span 
 
 function buildControls() {
   $('controls').innerHTML = `
-    <a class="back" href="index.html">‹ Mandelbulb</a> <a class="back" href="gallery.html">Art gallery ›</a>
+    <a class="back" href="index.html">‹ All worlds</a> <a class="back" href="gallery.html">Art gallery ›</a>
     <div><p class="eyebrow">Library of Babel</p><h2 class="compact">25 symbols, 1,312,000 to a book: every book, once</h2></div>
     <button id="tourStart">▶ Guided tour</button>
     ${section('Walk', `<div class="pad">${PAD.map(([symbol, label, key]) =>

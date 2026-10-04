@@ -140,6 +140,7 @@ function buildControls() {
   });
 
   $('controls').append(
+    h('a', { class: 'back', href: 'index.html' }, '‹ All worlds'),
     h('header', {},
       h('p', { class: 'eyebrow' }, 'Mandelbulb'),
       h('h2', {}, 'z → zⁿ + c')),

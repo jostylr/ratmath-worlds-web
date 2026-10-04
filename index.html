@@ -3,24 +3,86 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#010103">
-  <title>RatMath Worlds: Mandelbulb</title>
-  <meta name="description" content="Explore the Mandelbulb: a shape made by repeating one rule, drawn live in your browser.">
+  <meta name="theme-color" content="#05070f">
+  <title>RatMath Worlds</title>
+  <meta name="description" content="Mathematical worlds to walk into, drawn live in your browser: fractals, hyperbolic spaces, four-dimensional shapes and more, each with a guided tour.">
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="library.css">
 </head>
-<body>
-  <canvas id="view" tabindex="0" role="img"
-          aria-label="Interactive Mandelbulb. Drag to rotate, pinch or scroll to zoom, double-tap to fly to a spot."></canvas>
-
-  <aside id="explorer" class="panel" aria-label="Orbit explorer" hidden></aside>
-  <aside id="controls" class="panel" aria-label="Controls"></aside>
-  <button id="controlsToggle" class="prominent icon round" aria-label="Hide controls">✕</button>
-  <nav id="modeButtons"></nav>
-  <article id="tourCard" class="panel" aria-live="polite" hidden></article>
-
-  <p id="error" role="alert" hidden></p>
-  <noscript><p id="error">RatMath Worlds needs JavaScript and WebGL 2.</p></noscript>
-
-  <script type="module" src="src/main.js"></script>
+<body class="library">
+  <main>
+    <header>
+      <p class="eyebrow">RatMath Worlds</p>
+      <h1>Mathematical worlds to walk into</h1>
+      <p class="lede">Each world has a guided tour that explains what you are looking at, and controls with notes on the mathematics. The address of a world's page always holds the view on screen, so any spot can be shared as a link.</p>
+    </header>
+    <nav class="cards" aria-label="Worlds">
+      <a class="card" href="mandelbulb.html">
+        <h2>Mandelbulb</h2>
+        <p class="formula">z → zⁿ + c</p>
+        <p>One rule, repeated for every point in space. The border between points that stay and points that fly away is a shape with detail at every scale.</p>
+      </a>
+      <a class="card" href="menger.html">
+        <h2>Menger sponge</h2>
+        <p class="formula">Cut out the middle. Repeat.</p>
+        <p>A cube with its middle cross removed, then the same again in every piece that is left. Fly inside and find the whole sponge repeated at every scale.</p>
+      </a>
+      <a class="card" href="hyperbolic-plane.html">
+        <h2>Hyperbolic plane</h2>
+        <p class="formula">{p, q}: p-gons, q at every corner</p>
+        <p>A plane with more room than a flat one: right-angled pentagons tile it, triangles' angles fall short of 180°, and through one point run many lines parallel to another. Walk across it and see that every tile is the same size.</p>
+      </a>
+      <a class="card" href="hyperbolic-space.html">
+        <h2>Hyperbolic room</h2>
+        <p class="formula">{4, 3, 5}: five cubes round every edge</p>
+        <p>Stand inside a cube whose copies fill a space with too much room: five cubes fit round each edge where ordinary space allows four. Walk a few rooms away and home shrinks to a speck.</p>
+      </a>
+      <a class="card" href="recursive-room.html">
+        <h2>Recursive room</h2>
+        <p class="formula">S(x) = k·R·x + t, again and again</p>
+        <p>A room with a doorway onto a smaller copy of itself, which has a doorway onto a smaller copy still. Fly in for ever and arrive where you began; back out and find your room was the copy.</p>
+      </a>
+      <a class="card" href="escher.html">
+        <h2>Escher stairs</h2>
+        <p class="formula">One space, six ways up</p>
+        <p>Three spiral staircases share one space, each walked on both faces: wood above and marble beneath, brass and slate, iron and tile. Doors turn you onto another face, where everything you just left is sideways or overhead.</p>
+      </a>
+      <a class="card" href="babel.html">
+        <h2>Library of Babel</h2>
+        <p class="formula">25 symbols, 1,312,000 to a book: every book, once</p>
+        <p>Borges's library of hexagonal galleries holding every possible book. Walk it, climb it, take any book down and read it, and type an address to return. Every text you can think of already has a shelf.</p>
+      </a>
+      <a class="card" href="gallery.html">
+        <h2>Art gallery</h2>
+        <p class="formula">picture = scheme(place)</p>
+        <p>The Library's rooms, hung with pictures that nobody painted. Each is worked out on the spot from a rule and the place it hangs, with a different rule on every floor: tilings, automata, Julia sets, bit games, or a formula you write yourself.</p>
+      </a>
+      <a class="card" href="four-d.html">
+        <h2>4D slices</h2>
+        <p class="formula">x = u₁e₁ + u₂e₂ + u₃e₃ + w·n</p>
+        <p>Shapes with four coordinates, seen the only way a three-dimensional creature can: one solid slice at a time. Push a tesseract through your space corner first and watch a tetrahedron become an octahedron.</p>
+      </a>
+      <a class="card" href="quaternion-julia.html">
+        <h2>Quaternion Julia set</h2>
+        <p class="formula">q → q² + c, with q = a + bi + cj + dk</p>
+        <p>The Julia set rule, run with four-part numbers instead of two-part ones. The result is a four-dimensional shape; you see a solid slice of it, and inside every cut is a Julia set you may already know.</p>
+      </a>
+      <a class="card" href="topology.html">
+        <h2>One-sided surfaces</h2>
+        <p class="formula">Turn a strip half-way round, and join the ends</p>
+        <p>A strip of paper has two sides until you give it a half-twist and join the ends. Follow a flag round a Möbius band and watch it come back upside-down, then close the band up into a Klein bottle.</p>
+      </a>
+      <a class="card" href="eversion.html">
+        <h2>Sphere eversion</h2>
+        <p class="formula">Inside out, with no hole and no crease</p>
+        <p>A sphere can be turned inside out if it may pass through itself but must never be torn or creased. It sounds impossible, and it took a proof to find out that it is not. Watch one way of doing it, and stop it anywhere.</p>
+      </a>
+      <a class="card" href="attractors.html">
+        <h2>Strange attractors</h2>
+        <p class="formula">ẋ = σ(y − x),  ẏ = x(ρ − z) − y,  ż = xy − βz</p>
+        <p>Three numbers that change by a simple rule, and a path that never repeats and never leaves. Start two points a hair apart and watch them end up on opposite wings of the butterfly.</p>
+      </a>
+    </nav>
+  </main>
 </body>
 </html>

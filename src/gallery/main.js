@@ -383,7 +383,7 @@ const readout = (title, id) => `<div class="readout"><span>${title}</span><span 
 
 function buildControls() {
   $('controls').innerHTML = `
-    <a class="back" href="index.html">‹ Mandelbulb</a> <a class="back" href="babel.html">‹ Library of Babel</a>
+    <a class="back" href="index.html">‹ All worlds</a> <a class="back" href="babel.html">‹ Library of Babel</a>
     <div><p class="eyebrow">Art gallery</p><h2 class="compact">picture = scheme(place)</h2></div>
     <button id="tourStart">▶ Guided tour</button>
     ${section('Walk', `<div class="pad">${PAD.map(([symbol, label, key]) =>

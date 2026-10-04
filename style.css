@@ -140,6 +140,8 @@ body.tall #tourCard { max-height: 62%; }
   border: 1px solid var(--line);
 }
 
+a.back { color: var(--accent); font-size: 0.82rem; font-weight: 600; text-decoration: none; }
+
 /* Layout helpers */
 
 section { display: grid; gap: 10px; padding-top: 14px; border-top: 1px solid var(--line); }
