@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#010103">
+  <title>RatMath Worlds: One-sided surfaces</title>
+  <meta name="description" content="A strip of paper has two sides until you give it a half-twist and join the ends. Follow a flag round a Möbius band and watch it come back upside-down, then close the band up into a Klein bottle.">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="worlds.css">
+</head>
+<body>
+  <noscript><p id="error">RatMath Worlds needs JavaScript and WebGL 2.</p></noscript>
+  <script type="module">
+    import { start } from './src/worlds/engine.js';
+    import { world } from './src/worlds/topology.js';
+    start(world);
+  </script>
+</body>
+</html>
