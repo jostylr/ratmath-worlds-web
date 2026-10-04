@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#010103">
+  <title>RatMath Worlds: Recursive room</title>
+  <meta name="description" content="A room with a doorway onto a smaller copy of itself, which has a doorway onto a smaller copy still. Fly in for ever and arrive where you began; back out and find your room was the copy.">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="worlds.css">
+</head>
+<body>
+  <noscript><p id="error">RatMath Worlds needs JavaScript and WebGL 2.</p></noscript>
+  <script type="module">
+    import { start } from './src/worlds/engine.js';
+    import { world } from './src/worlds/recursive-room.js';
+    start(world);
+  </script>
+</body>
+</html>
