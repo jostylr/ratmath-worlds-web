@@ -2,13 +2,18 @@
 // pictures it makes depending on which of z and c is held fixed.
 // This is Worlds/Flat/MandelbrotWorld.swift, without its explorer; the tour's
 // words are copied from it.
-import { newState, copyState, keyframe, slider, picker, toggle, readout, group, Format } from './engine.js';
+import { newState, copyState, keyframe, slider, picker, toggle, readout, group, Format, WIDE_LOW } from './engine.js';
+import { Wide } from './wide.js';
 import { SHELF, WHITE, YELLOW, CYAN, PINK, dot, segment, blend, complex } from './flat-support.js';
 import { FRAGMENT } from './shaders/mandelbrot.js';
 
 // Indices into the state's values.
 const CENTRE_X = 0;
 const CENTRE_Y = 1;
+// The small remainders of the centre's two coordinates (see wide.js), stored
+// multiplied by WIDE_LOW.
+const CENTRE_LOW_X = 8;
+const CENTRE_LOW_Y = 9;
 const PICTURE = 2;
 const C_X = 3;
 const C_Y = 4;
@@ -21,8 +26,11 @@ const ORBIT = 7;
 const SPAN = 1.35;
 
 /** The nearest and farthest the picture can be seen from. */
-/** How close the view can come: where JavaScript's own numbers run out. */
-const DISTANCE_RANGE = [1.0 / 1e12, 2.5];
+/** How close the view can come: where thirty-two digits run out. */
+const DISTANCE_RANGE = [1.0 / 1e26, 2.5];
+/** Views narrower than this have their reference orbit followed with
+    thirty-two digits; sixteen are enough until then, and quicker. */
+const WIDE_BELOW = 1e-11;
 
 const defaults = newState();
 defaults.values[CENTRE_X] = -0.6;
@@ -39,8 +47,21 @@ const clamp = (value, lo, hi) => Math.min(Math.max(value, lo), hi);
 const isJulia = state => state.values[PICTURE] > 0.5;
 const scale = state => SPAN * state.cameraDistance;
 const centre = state => [state.values[CENTRE_X], state.values[CENTRE_Y]];
+/** The centre to twice the digits: each coordinate a wide number. */
+const wideCentre = state => [
+  [state.values[CENTRE_X], state.values[CENTRE_LOW_X] / WIDE_LOW],
+  [state.values[CENTRE_Y], state.values[CENTRE_LOW_Y] / WIDE_LOW],
+];
+function setCentre(x, y, state) {
+  state.values[CENTRE_X] = x[0];
+  state.values[CENTRE_LOW_X] = x[1] * WIDE_LOW;
+  state.values[CENTRE_Y] = y[0];
+  state.values[CENTRE_LOW_Y] = y[1] * WIDE_LOW;
+}
+/** How many decimal places of the centre are worth showing. */
+const places = state => Math.min(Math.max(Math.ceil(-Math.log10(scale(state))) + 4, 6), 30);
 const c = state => [state.values[C_X], state.values[C_Y]];
-const stepLimit = state => Math.round(clamp(state.values[LIMIT], 2, 4000));
+const stepLimit = state => Math.round(clamp(state.values[LIMIT], 2, 8000));
 
 function plane(viewPoint, state) {
   const s = scale(state);
@@ -122,8 +143,12 @@ function orbitMarkers(path, selected, state) {
 
 function looking(base, x, y, zoom) {
   const state = copyState(base);
-  state.values[CENTRE_X] = x;
-  state.values[CENTRE_Y] = y;
+  if (typeof x === 'string') {
+    // A place given to more digits than one number holds.
+    setCentre(Wide.fromDecimal(x), Wide.fromDecimal(y), state);
+  } else {
+    setCentre([x, 0], [y, 0], state);
+  }
   state.cameraDistance = 1 / zoom;
   return state;
 }
@@ -296,6 +321,32 @@ const tour = [
     },
   },
   {
+    title: 'Twenty zeros',
+    body: `
+      This is the centre of one of the spirals in the valley, a
+      point that can be worked out to as many digits as you like.
+      The dive goes to a hundred million million million times. If
+      the whole set were as wide as the Milky Way, the screen would
+      now be showing a stretch ten paces long.
+
+      Sixteen digits ran out along the way. From there the one
+      orbit is followed with thirty-two, and the spiral goes on
+      turning exactly as before. It always will: around this point
+      the set looks the same at every scale.`,
+    tryIt: 'Where you are → Centre shows the digits in use',
+    build(base) {
+      const state = copyState(base);
+      state.values[INSET] = 0;
+      state.values[LIMIT] = 6000;
+      const x = '-0.776610592599701856564039502552994749';
+      const y = '0.134608961675028166056737270233057809';
+      return [
+        keyframe(looking(state, x, y, 50), 5.0, 1.0),
+        keyframe(looking(state, x, y, 1e20), 30.0),
+      ];
+    },
+  },
+  {
     title: 'The other picture: Julia sets',
     body: `
       Now hold c fixed and ask a different question: which starting
@@ -369,13 +420,31 @@ const referenceCache = { key: '', value: { offset: [0, 0], last: 0, orbit: NO_RE
     measured from the centre of the view, and z₀, z₁, … four numbers apiece. */
 function reference(state) {
   const limit = stepLimit(state);
-  const middle = centre(state);
-  const key = [middle[0], middle[1], scale(state), limit].join(',');
+  const middle = wideCentre(state);
+  const key = [...middle[0], ...middle[1], scale(state), limit].join(',');
   if (key === referenceCache.key) { return referenceCache.value; }
+  const wide = scale(state) < WIDE_BELOW;
 
-  const follow = (cx, cy) => {
+  const follow = (dx, dy) => {
     const orbit = new Float32Array(4 * (limit + 1));
-    let x = 0, y = 0, last = 0;
+    let last = 0;
+    if (wide) {
+      // The same rule, with every number carried as two.
+      const cx = Wide.plus(middle[0], dx), cy = Wide.plus(middle[1], dy);
+      let x = [0, 0], y = [0, 0];
+      for (let n = 1; n <= limit; n += 1) {
+        const next = Wide.add(Wide.sub(Wide.mul(x, x), Wide.mul(y, y)), cx);
+        y = Wide.add(Wide.times(Wide.mul(x, y), 2), cy);
+        x = next;
+        orbit[4 * n] = x[0];
+        orbit[4 * n + 1] = y[0];
+        last = n;
+        if (x[0] * x[0] + y[0] * y[0] > 1e6) { break; }
+      }
+      return { last, orbit };
+    }
+    const cx = middle[0][0] + dx, cy = middle[1][0] + dy;
+    let x = 0, y = 0;
     for (let n = 1; n <= limit; n += 1) {
       const next = x * x - y * y + cx;
       y = 2 * x * y + cy;
@@ -391,13 +460,13 @@ function reference(state) {
   // The longer the reference lasts, the better it serves: try the centre
   // and a grid of other places in the view, and keep the one that stays
   // longest.
-  let best = { offset: [0, 0], ...follow(middle[0], middle[1]) };
+  let best = { offset: [0, 0], ...follow(0, 0) };
   search: if (best.last < limit) {
     for (let row = -3; row <= 3; row += 1) {
       for (let column = -3; column <= 3; column += 1) {
         if (row === 0 && column === 0) { continue; }
         const offset = [column * 0.4 * scale(state), row * 0.4 * scale(state)];
-        const candidate = follow(middle[0] + offset[0], middle[1] + offset[1]);
+        const candidate = follow(offset[0], offset[1]);
         if (candidate.last > best.last) {
           best = { offset, ...candidate };
           if (candidate.last >= limit) { break search; }
@@ -435,7 +504,7 @@ export const world = {
       the border, points take longer and longer to decide, so a
       higher limit sharpens the edge and costs time.`, [
       picker('Picture', PICTURE, ['Mandelbrot set', 'Julia set']),
-      slider('Step limit', LIMIT, [20, 4000], value => String(Math.round(value))),
+      slider('Step limit', LIMIT, [20, 8000], value => String(Math.round(value))),
     ]),
     group('The number c', `
       Tap the Mandelbrot set to choose c: the yellow dot. The
@@ -467,13 +536,20 @@ export const world = {
       in all seven. So one orbit in the view is followed with
       sixteen digits, and each pixel works out only how its own
       orbit differs from that one. That reaches a million
-      million times, where sixteen digits run out in turn. The
-      deeper you go, the higher the step limit needs to be.
+      million times, where sixteen digits run out in turn.
+
+      Past there the one orbit is followed with thirty-two
+      digits, each number kept as a large part and a small
+      remainder, and the centre is shown here to thirty places.
+      The dive stops at 10²⁶×, where those run out too. Long
+      before that the step limit is what matters: the deeper
+      you go, the higher it needs to be, and the slower the
+      picture.
 
       A Julia set is drawn the plain way, and blurs into blocks
       past 20,000×.`, [
-      readout('Centre, real', state => state.values[CENTRE_X].toFixed(14)),
-      readout('Centre, imaginary', state => state.values[CENTRE_Y].toFixed(14)),
+      readout('Centre, real', state => Wide.decimal(wideCentre(state)[0], places(state))),
+      readout('Centre, imaginary', state => Wide.decimal(wideCentre(state)[1], places(state))),
       readout('Width shown', state => Format.significant(2 * scale(state), 3)),
     ]),
   ],
@@ -504,12 +580,11 @@ export const world = {
   discreteValues: new Set([PICTURE, INSET, ORBIT]),
   cameraBacksAwayWhenMoving: false,
   drag(state, probe, dx, dy) {
-    state.values[CENTRE_X] -= dx * scale(state);
-    state.values[CENTRE_Y] += dy * scale(state);
+    const [x, y] = wideCentre(state);
+    setCentre(Wide.plus(x, -dx * scale(state)), Wide.plus(y, dy * scale(state)), state);
   },
   resetView(state) {
-    state.values[CENTRE_X] = isJulia(state) ? 0 : defaults.values[CENTRE_X];
-    state.values[CENTRE_Y] = 0;
+    setCentre([isJulia(state) ? 0 : defaults.values[CENTRE_X], 0], [0, 0], state);
   },
   overlayMarkers(state) {
     if (isJulia(state)) { return []; }
@@ -524,14 +599,15 @@ export const world = {
   },
   tourKeepsPalette: false,
   flatCentre: [CENTRE_X, CENTRE_Y],
+  flatCentreLow: [CENTRE_LOW_X, CENTRE_LOW_Y],
   zoomTarget(viewPoint, state, factor) {
     // Closer by the factor, with the point under the finger staying where it is.
     const target = copyState(state);
     target.cameraDistance = clamp(state.cameraDistance / factor, ...DISTANCE_RANGE);
     const ratio = target.cameraDistance / state.cameraDistance;
-    const point = plane(viewPoint, state);
-    target.values[CENTRE_X] = point[0] + (state.values[CENTRE_X] - point[0]) * ratio;
-    target.values[CENTRE_Y] = point[1] + (state.values[CENTRE_Y] - point[1]) * ratio;
+    const shift = scale(state) * (1 - ratio);
+    const [x, y] = wideCentre(state);
+    setCentre(Wide.plus(x, viewPoint[0] * shift), Wide.plus(y, viewPoint[1] * shift), target);
     return target;
   },
   tap(state, viewPoint) {
@@ -540,6 +616,6 @@ export const world = {
     state.values[C_X] = clamp(point[0], -2, 1);
     state.values[C_Y] = clamp(point[1], -1.5, 1.5);
   },
-  urlDigits: 16,
+  urlDigits: 20,
   shelf: SHELF,
 };

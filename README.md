@@ -138,8 +138,10 @@ the view, so that zooms keep their target still), `zoomTarget` (the state a
 double-click or the wheel leads to), `tap`, `labels` (lettering over the picture,
 such as the numbers along the logistic map's axes) and `urlDigits`. A world may also give
 `shaderData`, a longer table of numbers that reaches its shader as a float texture
-(`wData`); the Mandelbrot set uses it for the reference orbit that lets it zoom to
-10¹²×. The later four set
+(`wData`); the Mandelbrot set uses it for the reference orbit that lets it zoom
+past a shader's seven digits. Beyond 10¹²× its centre and that orbit are kept in
+double-double arithmetic (`src/worlds/wide.js`, about 32 digits; `flatCentreLow`
+names the values holding the small halves), which reaches 10²⁶×. The later four set
 `flatFocus` instead and pan and zoom with the camera's own focus and distance, looking
 straight down, so that a fragment shader and the line renderer agree on places. They share
 `src/worlds/flat-support.js`.

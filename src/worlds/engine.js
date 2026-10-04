@@ -5,9 +5,13 @@
 //
 // What follows # in the page's address is always the scene on screen.
 
+import { Wide } from './wide.js';
+
 // MARK: State
 
 export const VALUE_COUNT = 32;
+/** The scale at which a flat world stores the small half of a wide centre. */
+export const WIDE_LOW = 2 ** 53;
 
 export function newState() {
   return {
@@ -56,6 +60,20 @@ export function interpolate(a, b, t, world, direct = false) {
     for (const index of world.flatCentre) {
       out.values[index] = b.values[index] + (a.values[index] - b.values[index]) * w;
     }
+  }
+  if (world.flatCentre && world.flatCentreLow && a.cameraDistance !== b.cameraDistance) {
+    // A centre kept to twice the digits moves the same way, with the
+    // arithmetic carried through both halves. The small half is stored
+    // multiplied by 2⁵³, so that an address can hold it.
+    const w = (out.cameraDistance - b.cameraDistance) / (a.cameraDistance - b.cameraDistance);
+    world.flatCentre.forEach((high, i) => {
+      const low = world.flatCentreLow[i];
+      const from = [a.values[high], a.values[low] / WIDE_LOW];
+      const to = [b.values[high], b.values[low] / WIDE_LOW];
+      const moved = Wide.add(to, Wide.times(Wide.sub(from, to), w));
+      out.values[high] = moved[0];
+      out.values[low] = moved[1] * WIDE_LOW;
+    });
   }
   if (world.flatFocus && Math.abs(a.cameraDistance - b.cameraDistance) > 1e-12) {
     // The same, for flat pictures that pan by moving the focus.
