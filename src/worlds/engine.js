@@ -766,7 +766,7 @@ export function start(world) {
     arrowup: [1, 0, 0], arrowdown: [-1, 0, 0], arrowleft: [0, -1, 0], arrowright: [0, 1, 0],
   };
   window.addEventListener('keydown', event => {
-    if (event.target.closest('input, textarea, select') || event.metaKey || event.ctrlKey || event.altKey) { return; }
+    if (event.target.closest?.('input, textarea, select') || event.metaKey || event.ctrlKey || event.altKey) { return; }
     const move = KEYS[event.key.toLowerCase()];
     if (!move || !world.step || tourIndex !== null) { return; }
     event.preventDefault();

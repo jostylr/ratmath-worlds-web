@@ -1,8 +1,8 @@
 # RatMath Worlds on the web
 
-The Mandelbulb experiment as a static web page: the same ray-marched object,
-guided tour, control panel and orbit explorer as the native app, drawn with
-WebGL 2. There is no build step and nothing to install.
+The app's worlds as static web pages, drawn with WebGL 2: the same pictures,
+guided tours and control panels as the native app. `index.html` is the library,
+with a card for each world. There is no build step and nothing to install.
 
 ## Run it
 
@@ -15,8 +15,9 @@ python3 -m http.server 8000 --directory web
 Then visit <http://localhost:8000>. Opening `index.html` straight from disk does
 not work, because browsers refuse to load JavaScript modules from `file://`.
 
-`?tourStep=N` (0 to 10) opens directly on that tour stop and `?explorer=1` opens in
-the orbit explorer, mirroring the native launch arguments.
+Every world's page takes `?tourStep=N` to open directly on that tour stop,
+mirroring the native launch argument, and keeps the scene on screen in its address
+after `#`, so a copied link opens the same view.
 
 ## Publish it
 
@@ -31,7 +32,10 @@ All paths in the page are relative, so the folder also works unchanged on any
 other static host. A headset needs the page served over `https`, which Pages
 provides.
 
-## How it maps to the native app
+## Mandelbulb
+
+`mandelbulb.html` has the orbit explorer as well as the tour; `?explorer=1` opens
+in it.
 
 | Web | Native |
 | --- | --- |
@@ -50,7 +54,7 @@ native file needs the same change here.
 ## Immersive mode
 
 On a browser with WebXR (Safari on Apple Vision Pro, the Meta Quest browser), the
-control panel shows **Enter immersive space**. It places the Mandelbulb about
+Mandelbulb's control panel shows **Enter immersive space**. It places the Mandelbulb about
 1.45 m ahead at sculpture scale. Pinch and move one hand to rotate; hold two
 pinches and change their separation to resize.
 
@@ -98,14 +102,47 @@ gallery.html#=xy*4*s:0,0,9
 `src/gallery/logic.js` is `Worlds/Gallery/GalleryWorld.swift`, and
 `src/gallery/shader.js` is `Worlds/Shaders/Gallery.metal`.
 
+## The other worlds
+
+| Page | World | Web | Native |
+| --- | --- | --- | --- |
+| `menger.html` | Menger sponge | `src/worlds/menger.js` | `Worlds/Menger/MengerWorld.swift` |
+| `hyperbolic-plane.html` | Hyperbolic plane | `src/worlds/hyperbolic-plane.js` | `Worlds/Hyperbolic/HyperbolicPlaneWorld.swift` |
+| `hyperbolic-space.html` | Hyperbolic room | `src/worlds/hyperbolic-space.js` | `Worlds/Hyperbolic/HyperbolicSpaceWorld.swift` |
+| `recursive-room.html` | Recursive room | `src/worlds/recursive-room.js` | `Worlds/Recursive/RecursiveRoomWorld.swift` |
+| `escher.html` | Escher stairs | `src/worlds/escher.js` | `Worlds/Escher/EscherWorld.swift` |
+| `four-d.html` | 4D slices | `src/worlds/four-d.js` | `Worlds/FourD/FourDWorld.swift` |
+| `quaternion-julia.html` | Quaternion Julia set | `src/worlds/quaternion-julia.js` | `Worlds/FourD/QuaternionJuliaWorld.swift` |
+| `topology.html` | One-sided surfaces | `src/worlds/topology.js` | `Worlds/Topology/TopologyWorld.swift` |
+| `eversion.html` | Sphere eversion | `src/worlds/eversion.js` | `Worlds/Eversion/EversionWorld.swift` |
+| `attractors.html` | Strange attractors | `src/worlds/attractors.js` | `Worlds/Dynamics/AttractorWorld.swift` |
+
+These all run on `src/worlds/engine.js`, which is `Worlds/Core` for the web: the
+state and its thirty-two numbers, keyframed tours, the control panel built from a
+world's control groups, the orbit camera, and the renderers for glowing lines and
+triangle meshes. A world is one module exporting an object with the same fields as
+the app's `World`, translated by hand from its Swift file; the tour's words are
+copied. A change to a Swift world needs the same change in its module. The
+explorers and the immersive mode are not part of the web version.
+
+What follows `#` is the scene, written as the numbers that differ from the
+world's defaults: `v` the world's own values, `c` the camera's yaw, pitch and
+distance, `f` the point it orbits and `p` the colour scheme:
+
+```
+menger.html#v=5,0,1&c=0.785398,-0.6155,3.3&p=2
+```
+
 ## Shaders
 
-The library and the gallery are drawn by the same code in the app and here. The
-Metal files are the source, and
+Apart from the Mandelbulb, every world is drawn by the same shader code in the app
+and here. The Metal files are the source, and
 
 ```bash
 python3 web/make-shaders.py
 ```
 
-rewrites `src/babel/shader.js` and `src/gallery/shader.js` from them. Run it after
-changing `Babel.metal`, `Gallery.metal` or the `BabelRoom` headers.
+rewrites `src/babel/shader.js`, `src/gallery/shader.js` and the files in
+`src/worlds/shaders/` from them. Run it after changing any `.metal` file or header
+in `Worlds/Shaders`. The shaders for lines and meshes (`WorldLines.metal`,
+`WorldMesh.metal`) are small and written out by hand in `src/worlds/engine.js`.
