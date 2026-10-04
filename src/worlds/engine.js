@@ -57,6 +57,11 @@ export function interpolate(a, b, t, world, direct = false) {
       out.values[index] = b.values[index] + (a.values[index] - b.values[index]) * w;
     }
   }
+  if (world.flatFocus && Math.abs(a.cameraDistance - b.cameraDistance) > 1e-12) {
+    // The same, for flat pictures that pan by moving the focus.
+    const w = (out.cameraDistance - b.cameraDistance) / (a.cameraDistance - b.cameraDistance);
+    out.focus = [0, 1, 2].map(i => b.focus[i] + (a.focus[i] - b.focus[i]) * w);
+  }
   return out;
 }
 

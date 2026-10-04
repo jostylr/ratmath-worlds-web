@@ -62,3 +62,54 @@ export const sup = n => [...String(n)].map(c => SUPERSCRIPTS[c] ?? c).join('');
 /** A complex number written out, such as −0.1226 + 0.7449i. */
 export const complex = (z, digits = 4) =>
   `${Format.number(z[0], digits)} ${z[1] < 0 ? '−' : '+'} ${Format.number(Math.abs(z[1]), digits)}i`;
+
+// MARK: The orbit camera, used flat
+
+/** Plane units per view unit, for each unit of camera distance, when the
+    camera looks straight down on the plane z = 0 (fPlane in the shaders, and
+    the line renderer, use the same number). */
+export const LENS = 0.72 / 1.65;
+
+export const scale = state => LENS * state.cameraDistance;
+export const plane = (viewPoint, state) =>
+  [state.focus[0] + viewPoint[0] * scale(state), state.focus[1] + viewPoint[1] * scale(state)];
+export const view = (point, state) =>
+  [(point[0] - state.focus[0]) / scale(state), (point[1] - state.focus[1]) / scale(state)];
+
+/** Makes a state look straight down from `distance` at `centre`. */
+export function lookDown(state, distance, centre = [0, 0]) {
+  state.yaw = 0;
+  state.pitch = 0;
+  state.cameraDistance = distance;
+  state.focus = [centre[0], centre[1], 0];
+  return state;
+}
+
+export function pan(state, dx, dy) {
+  state.focus[0] -= dx * scale(state);
+  state.focus[1] += dy * scale(state);
+}
+
+/** `factor` times closer, with the view point staying where it is; `range`
+    is the world's cameraDistanceRange. Returns a new state. */
+export function dive(viewPoint, state, factor, range) {
+  const goal = { ...state, values: [...state.values], focus: [...state.focus] };
+  goal.cameraDistance = Math.min(Math.max(state.cameraDistance / factor, range[0]), range[1]);
+  const ratio = goal.cameraDistance / state.cameraDistance;
+  const point = plane(viewPoint, state);
+  goal.focus = [point[0] + (state.focus[0] - point[0]) * ratio, point[1] + (state.focus[1] - point[1]) * ratio, 0];
+  return goal;
+}
+
+/** A small generator of repeatable random numbers between 0 and 1. (The
+    app's is a different one, so its throws fall differently.) */
+export function dice(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}

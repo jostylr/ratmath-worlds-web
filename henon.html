@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#010103">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <title>RatMath Worlds: Hénon's attractor</title>
+  <meta name="description" content="Two numbers, bent and squeezed by one rule, over and over. Whatever the start, the points gather on the same curve; look closer and the curve is two curves, then four, without end.">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="worlds.css">
+</head>
+<body>
+  <noscript><p id="error">RatMath Worlds needs JavaScript and WebGL 2.</p></noscript>
+  <script type="module">
+    import { start } from './src/worlds/engine.js';
+    import { world } from './src/worlds/henon.js';
+    start(world);
+  </script>
+</body>
+</html>

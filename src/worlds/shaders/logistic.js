@@ -206,6 +206,13 @@ vec2 fViewExtent(vec4 resolutionAndCone) {
     return vec2(aspect, 1.0) / min(aspect, 1.0);
 }
 
+// For flat worlds that pan and zoom with the orbit camera's own numbers,
+// looking straight down on the plane z = 0: the point of the plane under a
+// view point. Lines drawn by WorldLines.metal land in the same place.
+vec2 fPlane(vec2 uv, vec4 focus, vec4 camera) {
+    return focus.xy + uv * (camera.z * 0.4363636);
+}
+
 float fSegmentDistance(vec2 p, vec2 a, vec2 b) {
     vec2 ab = b - a;
     float t = saturate(dot(p - a, ab) / max(dot(ab, ab), 1e-12));

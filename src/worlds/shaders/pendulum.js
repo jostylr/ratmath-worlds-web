@@ -1,4 +1,4 @@
-// Flatland.metal in GLSL, written by make-shaders.py from the app's
+// Pendulum.metal in GLSL, written by make-shaders.py from the app's
 // Metal shaders. Do not edit: change the Metal files and run the script again.
 
 export const FRAGMENT = `#version 300 es
@@ -262,189 +262,85 @@ vec3 fDrawMarkers(
 
 
 
-// Flatland: a plane of shapes, drawn from above and as one of them sees it.
+// A pendulum swinging over three magnets. Every point of the picture is a
+// place to let the bob go, coloured by the magnet it comes to rest over.
 //
-// v[0]: eye x, eye y, heading, fog
-// v[1]: view (0 both, 1 from above, 2 the eye alone), visitor (0 none,
-//       1 sphere, 2 cube), the visitor's height above the plane, needle angle
-// v[2]: field of view, plane units per view unit on the map, the map's shift
-//       up the view, explorer flag
-// v[3]: the explorer's ray: direction (an angle in the plane)
+// v[0]: friction, the magnets' depth below the bob, the pull back to the
+//       middle, time step
 //
-// FlatlandWorld.swift has the same scene, for walking and for the explorer.
+// PendulumWorld.swift follows one swing with the same rule and the same
+// steps. The view is the orbit camera's, looking straight down (see fPlane).
 
-#define kFlatMapCentre vec2(0.0, -0.3)
-#define kFlatVisitor vec2(0.4, 0.3)
-#define kFlatSphereRadius 0.9
-#define kFlatCubeHalfSide 0.62
-
-// A regular polygon: radius to its corners, one side facing along turn.
-float flatPolygon(vec2 p, vec2 centre, float radius, float sides, float turn) {
-    vec2 q = p - centre;
-    float sector = 6.2831853 / sides;
-    float angle = fWrap(atan2(q.y, q.x) - turn + 0.5 * sector, sector) - 0.5 * sector;
-    return length(q) * cos(angle) - radius * cos(0.5 * sector);
+vec2 pendulumMagnet(int index) {
+    float angle = 1.5707963 + 2.0943951 * float(index);
+    return vec2(cos(angle), sin(angle));
 }
 
-float flatVisitor(vec2 p, float kind, float height) {
-    vec2 q = p - kFlatVisitor;
-    if (kind < 0.5) { return 1e6; }
-    if (kind < 1.5) {
-        // A sphere meets the plane in a circle, or not at all.
-        float inside = kFlatSphereRadius * kFlatSphereRadius - height * height;
-        return inside > 0.0 ? length(q) - sqrt(inside) : 1e6;
-    }
-    // A cube balanced on one corner: three pairs of faces, each leaning
-    // the same way from the upright.
-    float d = -1e6;
+// How the bob's velocity is changing: pulled to the middle, slowed by
+// friction, and drawn toward each magnet.
+vec2 pendulumPush(vec2 p, vec2 velocity, WorldUniforms u) {
+    vec2 push = -u.v[0].z * p - u.v[0].x * velocity;
+    float depth2 = u.v[0].y * u.v[0].y;
     for (int i = 0; i < 3; ++i) {
-        float around = 2.0943951 * float(i) + 0.4;
-        vec3 axis = vec3(0.8164966 * cos(around), 0.8164966 * sin(around), 0.5773503);
-        d = max(d, abs(dot(axis, vec3(q, height))) - kFlatCubeHalfSide);
+        vec2 toward = pendulumMagnet(i) - p;
+        float d2 = dot(toward, toward) + depth2;
+        push += toward / (d2 * sqrt(d2));
     }
-    return d * 1.2247449;
+    return push;
 }
 
-// The nearest shape: its distance, and which it is.
-vec2 flatScene(vec2 p, WorldUniforms u) {
-    vec2 best = vec2(flatPolygon(p, vec2(-2.7, -0.3), 0.62, 3.0, 0.5), 1.0);
-    float d = flatPolygon(p, vec2(-1.6, 1.7), 0.62, 4.0, 0.3);
-    if (d < best.x) { best = vec2(d, 2.0); }
-    d = flatPolygon(p, vec2(0.3, 2.5), 0.66, 5.0, 0.2);
-    if (d < best.x) { best = vec2(d, 3.0); }
-    d = flatPolygon(p, vec2(2.1, 1.5), 0.70, 6.0, 0.0);
-    if (d < best.x) { best = vec2(d, 4.0); }
-    d = length(p - vec2(2.9, -0.5)) - 0.6;
-    if (d < best.x) { best = vec2(d, 5.0); }
-    vec2 along = 0.55 * vec2(cos(u.v[1].w), sin(u.v[1].w));
-    d = fSegmentDistance(p, vec2(-1.1, -1.3) - along, vec2(-1.1, -1.3) + along) - 0.025;
-    if (d < best.x) { best = vec2(d, 6.0); }
-    d = flatVisitor(p, u.v[1].y, u.v[1].z);
-    if (d < best.x) { best = vec2(d, 7.0); }
-    return best;
-}
-
-// Follows a line of sight: how far it gets, and what it meets (0: nothing).
-vec2 flatTrace(vec2 origin, vec2 direction, float reach, WorldUniforms u) {
-    float travelled = 0.0;
-    for (int i = 0; i < 72; ++i) {
-        vec2 nearest = flatScene(origin + direction * travelled, u);
-        if (nearest.x < 0.003) { return vec2(travelled, nearest.y); }
-        // Nothing is nearer than this, so the line is clear that far.
-        travelled += nearest.x;
-        if (travelled > reach) { break; }
+vec3 pendulumSample(vec2 uv, WorldUniforms u) {
+    vec2 p = fPlane(uv, u.focus, u.camera);
+    vec2 velocity = vec2(0.0);
+    float dt = u.v[0].w;
+    int limit = u.camera.w > 1.5 ? 600 : 300;
+    int nearest = 0;
+    float changed = 0.0;
+    float steps = float(limit);
+    for (int i = 0; i < limit; ++i) {
+        velocity += pendulumPush(p, velocity, u) * dt;
+        p += velocity * dt;
+        int now = 0;
+        float best = 1e9;
+        for (int k = 0; k < 3; ++k) {
+            vec2 away = p - pendulumMagnet(k);
+            float d2 = dot(away, away);
+            if (d2 < best) { best = d2; now = k; }
+        }
+        if (now != nearest) {
+            nearest = now;
+            changed = float(i);
+        }
+        // Slow and close to a magnet: it will not get away again.
+        if (best < 0.04 && dot(velocity, velocity) < 0.01) {
+            steps = float(i);
+            break;
+        }
     }
-    return vec2(reach, 0.0);
-}
-
-vec3 flatPaint(float shape, int palette) {
-    if (palette == 1) { return vec3(0.78, 0.80, 0.84); }
-    if (shape < 1.5) { return vec3(0.95, 0.30, 0.16); }
-    if (shape < 2.5) { return vec3(0.95, 0.70, 0.14); }
-    if (shape < 3.5) { return vec3(0.30, 0.78, 0.36); }
-    if (shape < 4.5) { return vec3(0.20, 0.55, 0.95); }
-    if (shape < 5.5) { return vec3(0.68, 0.44, 0.95); }
-    if (shape < 6.5) { return vec3(0.95, 0.42, 0.66); }
-    return vec3(0.96, 0.96, 0.92);
-}
-
-// Everything the eye has: one line, brighter where things are nearer.
-vec3 flatEye(float across, float upright, WorldUniforms u) {
-    float heading = u.v[0].z;
-    float angle = heading - across * 0.5 * u.v[2].x;
-    vec2 hit = flatTrace(u.v[0].xy, vec2(cos(angle), sin(angle)), 30.0, u);
-    vec3 color = vec3(0.006, 0.008, 0.016);
-    if (hit.y > 0.5) {
-        color = flatPaint(hit.y, int(u.budget.z)) * exp(-u.v[0].w * hit.x);
+    vec3 tint = nearest == 0 ? vec3(0.95, 0.26, 0.16)
+        : (nearest == 1 ? vec3(0.98, 0.72, 0.14) : vec3(0.18, 0.50, 0.95));
+    if (int(u.budget.z) == 1) { // Time: how long the swing wandered
+        return vec3(0.86, 0.90, 1.0) * (0.06 + 0.94 * exp(-changed * dt * 0.18));
     }
-    return color * (0.80 + 0.20 * (1.0 - upright * upright));
+    return tint * tint * 0.72 * (0.22 + 0.78 * exp(-changed * dt * 0.10));
 }
 
-vec3 flatStrip(vec3 color, vec2 uv, vec2 centre, vec2 size, float pixel,
-                        WorldUniforms u) {
-    vec2 local = (uv - centre) / size;
-    vec2 q = (abs(local) - 1.0) * size;
-    float box = max(q.x, q.y);
-    if (box > 0.012) { return color; }
-    if (box > 0.0) { return vec3(0.50, 0.54, 0.68); }
-    vec3 inner = flatEye(local.x, local.y, u);
-    // A notch marks straight ahead.
-    float notch = fStroke(abs(local.x) * size.x, 0.002, pixel) * step(0.72, abs(local.y));
-    inner = mix(inner, vec3(1.0, 0.70, 0.05), notch);
-    if (u.v[2].w > 0.5) {
-        // The explorer's line of sight.
-        float at = (u.v[0].z - u.v[3].x) / (0.5 * u.v[2].x);
-        inner = mix(inner, vec3(1.0), fStroke(abs(local.x - at) * size.x, 0.0025, pixel));
-    }
-    return inner;
-}
-
-vec3 flatMap(vec2 uv, float pixel, WorldUniforms u) {
-    float scale = u.v[2].y;
-    vec2 p = kFlatMapCentre + (uv - vec2(0.0, u.v[2].z)) * scale;
-    float px = pixel * scale;
-    vec2 eye = u.v[0].xy;
-    float heading = u.v[0].z;
-    int palette = int(u.budget.z);
-
-    vec3 color = vec3(0.020, 0.024, 0.040);
-    vec2 cell = abs(fract(p + 0.5) - 0.5);
-    color += vec3(0.012, 0.014, 0.022) * fStroke(min(cell.x, cell.y), 0.004, px);
-
-    // What the eye's light reaches: within its field of view, and not
-    // behind anything.
-    vec2 toPoint = p - eye;
-    float range = length(toPoint);
-    vec2 direction = toPoint / max(range, 1e-5);
-    float offAxis = acos(clamp(dot(direction, vec2(cos(heading), sin(heading))), -1.0, 1.0));
-    float inView = smoothstep(0.5 * u.v[2].x + 0.01, 0.5 * u.v[2].x - 0.01, offAxis);
-    float lit = 0.0;
-    if (inView > 0.0) {
-        vec2 sight = flatTrace(eye, direction, range, u);
-        lit = inView * smoothstep(range - 0.06, range - 0.02, sight.x) * exp(-u.v[0].w * range);
-    }
-    color += vec3(0.085, 0.075, 0.035) * lit;
-
-    vec2 nearest = flatScene(p, u);
-    vec3 paint = flatPaint(nearest.y, palette);
-    if (nearest.x < 0.0) { color = paint * 0.20; }
-    // Outlines; the stretches the eye can see are bright.
-    float outline = fStroke(abs(nearest.x), 0.012, px);
-    color = mix(color, paint * (0.36 + 0.64 * min(lit * 1.6, 1.0)), outline);
-
-    // A. Square, with his eye at the front corner.
-    vec2 forward = vec2(cos(heading), sin(heading));
-    vec2 body = p - (eye - forward * 0.14);
-    vec2 turned = vec2(dot(body, forward), dot(body, vec2(-forward.y, forward.x)));
-    float bodyDistance = max(abs(turned.x), abs(turned.y)) - 0.10;
-    color = mix(color, vec3(0.90, 0.90, 0.86), fStroke(abs(bodyDistance), 0.008, px));
-    if (bodyDistance < 0.0) { color = mix(color, vec3(0.90, 0.90, 0.86), 0.35); }
-    color = mix(color, vec3(1.0, 0.70, 0.05), smoothstep(0.05 + px, 0.05 - px, length(p - eye)));
-
-    return fDrawMarkers(color, uv, pixel, int(u.budget.w));
-}
-
-vec4 flatlandFragment(vec4 inPosition, WorldUniforms u) {
+vec4 pendulumFragment(vec4 inPosition, WorldUniforms u) {
 
     vec2 screen;
     vec2 uv = wViewCoordinates(inPosition, u.resolutionAndCone, screen);
     float pixel = fPixel(u.resolutionAndCone);
-    vec2 extent = fViewExtent(u.resolutionAndCone);
-    bool tall = extent.y > 1.2;
+    vec3 color = pendulumSample(uv, u);
 
-    vec3 color = vec3(0.010, 0.012, 0.022);
-    if (u.v[1].x < 1.5) {
-        color = flatMap(uv, pixel, u);
+    // The magnets.
+    float unit = u.camera.z * 0.4363636;
+    for (int k = 0; k < 3; ++k) {
+        vec2 at = (pendulumMagnet(k) - u.focus.xy) / unit;
+        float away = length(uv - at);
+        color = mix(color, vec3(0.02), smoothstep(0.026 + pixel, 0.026 - pixel, away));
+        color = mix(color, vec3(1.0), smoothstep(0.017 + pixel, 0.017 - pixel, away));
     }
-    if (u.v[1].x < 0.5) {
-        // The eye's line, as a band: above the map in a wide view, where the
-        // top is clear, and beneath it in a tall one.
-        vec2 size = vec2(tall ? extent.x - 0.08 : 0.58, 0.09);
-        color = flatStrip(color, uv, vec2(0.0, tall ? -0.78 : 0.86), size, pixel, u);
-    } else if (u.v[1].x > 1.5) {
-        vec2 size = vec2(min(extent.x - 0.08, 1.3), 0.20);
-        color = flatStrip(color, uv, vec2(0.0, 0.12), size, pixel, u);
-    }
+    color = fDrawMarkers(color, uv, pixel, int(u.budget.w));
     return vec4(color, 1.0);
 }
 
@@ -454,6 +350,6 @@ out vec4 fragColor;
 void main() {
     // Metal counts rows from the top.
     vec4 position = vec4(gl_FragCoord.x, U.resolutionAndCone.y - gl_FragCoord.y, 0.0, 1.0);
-    fragColor = vec4(flatlandFragment(position, U).rgb, 1.0);
+    fragColor = vec4(pendulumFragment(position, U).rgb, 1.0);
 }
 `;

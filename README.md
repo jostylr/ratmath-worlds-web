@@ -127,12 +127,18 @@ double-clicked to dive into. Their panels lead back to the shelf.
 | --- | --- | --- | --- |
 | `mandelbrot.html` | Mandelbrot and Julia sets | `src/worlds/mandelbrot.js` | `Worlds/Flat/MandelbrotWorld.swift` |
 | `logistic.html` | Logistic map | `src/worlds/logistic.js` | `Worlds/Flat/LogisticWorld.swift` |
+| `newton.html` | Newton's method | `src/worlds/newton.js` | `Worlds/Flat/NewtonWorld.swift` |
+| `henon.html` | Hénon's attractor | `src/worlds/henon.js` | `Worlds/Flat/HenonWorld.swift` |
+| `chaos-game.html` | Chaos game | `src/worlds/chaos-game.js` | `Worlds/Flat/ChaosGameWorld.swift` |
+| `pendulum.html` | Magnetic pendulum | `src/worlds/pendulum.js` | `Worlds/Flat/PendulumWorld.swift` |
 | `flatland.html` | Flatland | `src/worlds/flatland.js` | `Worlds/Flat/FlatlandWorld.swift` |
 
 A flat world may also give the engine `flatCentre` (which values hold the centre of
 the view, so that zooms keep their target still), `zoomTarget` (the state a
 double-click or the wheel leads to), `tap`, `labels` (lettering over the picture,
-such as the numbers along the logistic map's axes) and `urlDigits`. They share
+such as the numbers along the logistic map's axes) and `urlDigits`. The later four set
+`flatFocus` instead and pan and zoom with the camera's own focus and distance, looking
+straight down, so that a fragment shader and the line renderer agree on places. They share
 `src/worlds/flat-support.js`.
 
 These all run on `src/worlds/engine.js`, which is `Worlds/Core` for the web: the
