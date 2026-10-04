@@ -151,3 +151,142 @@ for folder, metal_name, wall in [("babel", "Babel.metal", "bShelves"), ("gallery
         f"export const FRAGMENT = `{build(metal_name, wall)}`;\n"
     )
     print("wrote", target.relative_to(WEB.parent))
+
+
+# MARK: The other worlds
+#
+# Every other world is drawn by its own Metal file over WorldCommon.h, most of
+# them through the ray marcher in WorldRayMarch.h. The same text becomes GLSL:
+# the types are renamed, references become inout parameters, the immersive
+# half is left out, and the fragment function becomes an ordinary function
+# that main() calls with the pixel's position.
+
+WORLD_PRELUDE = """#version 300 es
+precision highp float;
+precision highp int;
+
+#define M_PI_F 3.14159265358979
+#define fmod mod
+#define atan2 atan
+
+float saturate(float x) { return clamp(x, 0.0, 1.0); }
+vec2 saturate(vec2 x) { return clamp(x, 0.0, 1.0); }
+vec3 saturate(vec3 x) { return clamp(x, 0.0, 1.0); }
+bool isfinite(float x) { return !(isnan(x) || isinf(x)); }
+
+"""
+
+WORLD_MAIN = """
+uniform WorldUniforms U;
+out vec4 fragColor;
+
+void main() {
+    // Metal counts rows from the top.
+    vec4 position = vec4(gl_FragCoord.x, U.resolutionAndCone.y - gl_FragCoord.y, 0.0, 1.0);
+    fragColor = vec4(FRAGMENT_NAME(position, U).rgb, 1.0);
+}
+"""
+
+# Names Metal allows that GLSL keeps for itself or for its own functions.
+WORLD_RENAMES = {"out": "res", "sample": "smp", "cross": "crossBars", "inverse": "inverseOf",
+                 "sign": "signOf", "step": "stepIndex"}
+
+
+def cut_function(text, start):
+    """Removes the function that begins at `start`, to its closing brace."""
+    k = text.index("{", start)
+    depth = 1
+    k += 1
+    while depth > 0:
+        depth += {"{": 1, "}": -1}.get(text[k], 0)
+        k += 1
+    return text[:start] + text[k:]
+
+
+def world_glsl(text):
+    # The immersive renderers have no counterpart here.
+    if "// MARK: - Immersive renderer" in text:
+        text = text[:text.index("// MARK: - Immersive renderer")]
+    while "fragment WorldImmersiveOutput" in text:
+        text = cut_function(text, text.index("fragment WorldImmersiveOutput"))
+    for name in ["WorldRaster", "WorldImmersiveUniforms", "WorldImmersiveOutput"]:
+        text = re.sub(rf"struct {name} \{{.*?\}};\n", "", text, flags=re.S)
+    text = re.sub(r"#include [<\"][^>\"]*[>\"]\n", "", text)
+    text = text.replace("using namespace metal;\n", "")
+
+    # Local variables whose names GLSL has other uses for. A name followed by
+    # a bracket is the built-in function and stays.
+    def rename(line):
+        code, mark, comment = line.partition("//")
+        for metal, name in WORLD_RENAMES.items():
+            code = re.sub(rf"(?<![\w.]){metal}\b(?!\s*\()", name, code)
+        return code + mark + comment
+    text = "\n".join(rename(line) for line in text.split("\n"))
+
+    # The fragment functions take the pixel's position and the uniforms.
+    text = re.sub(
+        r"fragment float4 (\w+)\(\s*WorldRaster in \[\[stage_in\]\],\s*"
+        r"constant WorldUniforms &u \[\[buffer\(0\)\]\],\s*"
+        r"constant float4 \*markers \[\[buffer\(2\)\]\]\)",
+        r"vec4 \1(vec4 inPosition, WorldUniforms u)", text)
+    text = text.replace("in.position", "inPosition")
+    # The markers are a uniform every function can see.
+    text = re.sub(r",\s*constant float4 \*markers", "", text)
+    text = re.sub(r",\s*markers(?=\s*[,)])", "", text)
+    text = re.sub(r"constant (\w+) &(\w+)", r"\1 \2", text)
+    text = re.sub(r"thread (\w+) &(\w+)", r"inout \1 \2", text)
+
+    text = re.sub(r"\bstatic inline\b ?", "", text)
+    text = re.sub(r"\bstatic\b ?", "", text)
+    for metal, name in [("float2", "vec2"), ("float3", "vec3"), ("float4", "vec4")]:
+        text = re.sub(rf"\b{metal}\b", name, text)
+    # GLSL does not mix signed and unsigned numbers, so everything is signed.
+    text = re.sub(r"\buint\b", "int", text)
+    text = re.sub(r"\b(\d+)u\b", r"\1", text)
+    text = re.sub(r"const vec2 (\w+)\[(\d+)\] = \{([^}]*)\};",
+                  lambda m: f"const vec2 {m.group(1)}[{m.group(2)}] = vec2[{m.group(2)}]({m.group(3).strip()});",
+                  text, flags=re.S)
+    return text
+
+
+def build_world(metal_name, fragment):
+    common = (SHADERS / "WorldCommon.h").read_text()
+    common = common[common.index("struct WorldRaster"):common.rindex("#endif")]
+    common = "uniform vec4 markers[192];\n\n" + common
+    world = (SHADERS / metal_name).read_text() if metal_name else ""
+    march = (SHADERS / "WorldRayMarch.h").read_text()
+    march = march[march.index("#ifndef WORLD_STEP_SCALE"):]
+    world = world.replace('#include "WorldRayMarch.h"', march)
+    world = re.sub(r"#define WORLD_(IMMERSIVE_)?FRAGMENT \w+\n", "", world)
+    world = world.replace("WORLD_FRAGMENT", fragment)
+    if not metal_name:
+        lines = (SHADERS / "WorldLines.metal").read_text()
+        world = lines[lines.index("// The backdrop for line worlds"):]
+    # The comments quote names in backticks, which would end the JavaScript string.
+    source = WORLD_PRELUDE + world_glsl(common + world).replace("`", "") + WORLD_MAIN.replace("FRAGMENT_NAME", fragment)
+    assert "`" not in source and "${" not in source, "the shader would break out of its JavaScript string"
+    return source
+
+
+WORLDS = [
+    ("menger", "Menger.metal", "mengerFragment"),
+    ("hyperbolic-plane", "HyperbolicPlane.metal", "hyperbolicPlaneFragment"),
+    ("hyperbolic-space", "HyperbolicSpace.metal", "hyperbolicSpaceFragment"),
+    ("recursive-room", "RecursiveRoom.metal", "recursiveRoomFragment"),
+    ("escher", "Escher.metal", "escherFragment"),
+    ("four-d", "FourD.metal", "fourDFragment"),
+    ("quaternion-julia", "QuaternionJulia.metal", "quaternionJuliaFragment"),
+    ("topology", "Topology.metal", "topologyFragment"),
+    # The worlds drawn from lines and meshes share one backdrop.
+    ("backdrop", None, "worldLineBackgroundFragment"),
+]
+
+for name, metal_name, fragment in WORLDS:
+    target = WEB / "src" / "worlds" / "shaders" / f"{name}.js"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(
+        f"// {metal_name or 'WorldLines.metal'} in GLSL, written by web/make-shaders.py from the app's\n"
+        "// Metal shaders. Do not edit: change the Metal files and run the script again.\n\n"
+        f"export const FRAGMENT = `{build_world(metal_name, fragment)}`;\n"
+    )
+    print("wrote", target.relative_to(WEB.parent))

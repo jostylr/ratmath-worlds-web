@@ -1,0 +1,21 @@
+/* The pages drawn by src/worlds/engine.js; style.css supplies the shared panels. */
+
+#controls .back { color: var(--accent); font-size: 0.82rem; font-weight: 600; text-decoration: none; }
+#controls section > header { display: flex; justify-content: space-between; align-items: center; }
+#controls .info { background: none; padding: 0 2px; color: var(--accent); font-size: 1rem; }
+#controls label.row { flex-wrap: wrap; }
+#controls label.row input[type="range"] { flex-basis: 100%; }
+#controls label.row.check { flex-wrap: nowrap; }
+#controls.touring { display: none; }
+#controls .row > button { flex: 1; text-align: center; }
+.pad { display: flex; gap: 6px; margin-bottom: 6px; }
+.pad button { flex: 1; text-align: center; padding: 7px 0; touch-action: none; user-select: none; }
+.readout { display: flex; justify-content: space-between; gap: 8px; font-size: 0.8rem; }
+.readout span:first-child { color: var(--secondary); }
+.readout span:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+
+button.plain { background: none; padding: 4px 7px; font-size: 1.15rem; line-height: 1; color: var(--accent); }
+#tourCard header, #tourCard footer { display: flex; align-items: center; gap: 10px; }
+#tourCard header { justify-content: space-between; }
+#tourCard .body { display: grid; gap: 0.7em; max-height: 190px; overflow-y: auto; font-size: 0.95rem; }
+#tourCard .body p { margin: 0; }
