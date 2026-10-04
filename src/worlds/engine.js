@@ -1012,7 +1012,10 @@ export function start(world) {
     $('resetShape').addEventListener('click', resetShape);
   }
 
+  let refreshExtra = null;
+
   function refreshControls() {
+    refreshExtra?.(state);
     const panel = $('controls');
     if (panel.hidden || panel.classList.contains('touring')) { return; }
     for (const row of panel.querySelectorAll('[data-control]')) {
@@ -1108,6 +1111,13 @@ export function start(world) {
   // MARK: Start
 
   buildControls();
+  // A world may add furniture of its own to the panel, such as a box to
+  // type in; what it returns is called whenever the state changes.
+  refreshExtra = world.extend?.({
+    panel: $('controls'),
+    state: () => state,
+    change(edit) { edit(state); changed(); },
+  }) ?? null;
   // On a phone the panel would cover most of the picture.
   if (matchMedia('(max-width: 700px)').matches) { $('controlsToggle').click(); }
 

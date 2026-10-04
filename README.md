@@ -128,6 +128,7 @@ double-clicked to dive into. Their panels lead back to the shelf.
 | `mandelbrot.html` | Mandelbrot and Julia sets | `src/worlds/mandelbrot.js` | `Worlds/Flat/MandelbrotWorld.swift` |
 | `logistic.html` | Logistic map | `src/worlds/logistic.js` | `Worlds/Flat/LogisticWorld.swift` |
 | `newton.html` | Newton's method | `src/worlds/newton.js` | `Worlds/Flat/NewtonWorld.swift` |
+| `newton-lab.html` | Newton's laboratory | `src/worlds/newton-lab.js`, `formula-program.js` | `Worlds/Flat/NewtonLabWorld.swift`, `FormulaProgram.swift` |
 | `henon.html` | Hénon's attractor | `src/worlds/henon.js` | `Worlds/Flat/HenonWorld.swift` |
 | `chaos-game.html` | Chaos game | `src/worlds/chaos-game.js` | `Worlds/Flat/ChaosGameWorld.swift` |
 | `pendulum.html` | Magnetic pendulum | `src/worlds/pendulum.js` | `Worlds/Flat/PendulumWorld.swift` |
@@ -139,7 +140,9 @@ double-click or the wheel leads to), `tap`, `labels` (lettering over the picture
 such as the numbers along the logistic map's axes) and `urlDigits`. A world may also give
 `shaderData`, a longer table of numbers that reaches its shader as a float texture
 (`wData`); the Mandelbrot set uses it for the reference orbit that lets it zoom
-past a shader's seven digits. Beyond 10¹²× its centre and that orbit are kept in
+past a shader's seven digits. Newton's laboratory uses it for the program its typed
+formula is read into, and `extend`, which lets a world add furniture of its own to
+the control panel, for the box the formula is typed in. Beyond 10¹²× its centre and that orbit are kept in
 double-double arithmetic (`src/worlds/wide.js`, about 32 digits; `flatCentreLow`
 names the values holding the small halves), which reaches 10²⁶×. The later four set
 `flatFocus` instead and pan and zoom with the camera's own focus and distance, looking
