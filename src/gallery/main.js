@@ -351,7 +351,7 @@ const NOTES = {
   ],
   Formula: [
     'Floor 9, and every tenth floor from it, shows your own rule. Type it in the box at the top while you stand there, or put it in the address after an equals sign.',
-    'A formula is read left to right, one character a step, and keeps a stack of numbers: x y are the point, from −1 to 1; r a its distance and angle; t u two numbers that change from picture to picture; 0 to 9 are themselves. + − * / join the top two numbers. s c are sine and cosine of π times the top; q square root, b size, f fraction, o whole part, z minus, i one over, e exp, h 1 if positive. l g take the lesser and greater, p a power, m a remainder, n smooth noise, d copies the top, w swaps. At most 24 steps.',
+    'A formula is read left to right, one character a step, and keeps a stack of numbers: x y are the point, from −1 to 1; r a its distance and angle; t u two numbers that change from picture to picture; 0 to 9 are themselves. + − * / join the top two numbers. s c are sine and cosine of π times the top; q square root, b size, f fraction, o whole part, z minus, i one over, e exp, h 1 if positive. l g take the lesser and greater, p a power, m a remainder, n smooth noise, d copies the top, w swaps. At most 52 steps.',
     'One number left at the end picks a colour from a wheel; three are red, green and blue. So xy*4*s is sin(4π·x·y).',
   ],
   View: ['Zoom narrows the view like a longer lens; it does not move you. Reset takes you back to the first room.'],

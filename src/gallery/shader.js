@@ -421,6 +421,17 @@ float gNoise(vec2 p) {
     return mix(mix(bUnit(a, 1u), bUnit(b, 1u), f.x), mix(bUnit(c, 1u), bUnit(d, 1u), f.x), f.y) * 2.0 - 1.0;
 }
 
+// Where the formula is kept: four steps to a number, in the two groups set
+// aside for it and then in the five numbers the rooms leave unused.
+float gFormulaNumber(WorldValues P, int index) {
+    if (index < 8) { return P.v[6 + index / 4][index % 4]; }
+    if (index == 8) { return P.v[2].w; }
+    if (index == 9) { return P.v[4].w; }
+    if (index == 10) { return P.v[5].y; }
+    if (index == 11) { return P.v[5].z; }
+    return P.v[5].w;
+}
+
 // The visitor's own formula, in reverse Polish: each step pushes a number or
 // combines the top of the stack. One number left over is a place on a colour
 // wheel; three are red, green and blue.
@@ -430,8 +441,9 @@ vec3 gFormula(vec2 p, uint h, WorldValues P, int count) {
     float t = bUnit(h, 1u);
     float u = bUnit(h, 2u);
     for (int i = 0; i < count; ++i) {
-        int triple = int(P.v[6 + i / 12][(i / 3) % 4] + 0.5);
-        int op = i % 3 == 0 ? triple % 64 : (i % 3 == 1 ? (triple / 64) % 64 : triple / 4096);
+        int triple = int(gFormulaNumber(P, i / 4) + 0.5);
+        int place = i % 4;
+        int op = (place == 0 ? triple : (place == 1 ? triple / 64 : (place == 2 ? triple / 4096 : triple / 262144))) % 64;
         float value = 0.0;
         bool push = true;
         if (op == 1) { value = p.x; }
@@ -526,8 +538,9 @@ BabelSurface gPictures(
     }
 
     // The scheme of the floor this room is on.
-    int scheme = ((int(P.v[5].x + 0.5) + off.z) % 10 + 10) % 10;
-    int count = int(P.v[5].y + 0.5);
+    int floorAndCount = int(P.v[5].x + 0.5);
+    int scheme = ((floorAndCount % 16 + off.z) % 10 + 10) % 10;
+    int count = floorAndCount / 16;
 
     float usable = D.hw - 0.25;
     float y0 = 0.55;

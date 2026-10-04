@@ -13,7 +13,7 @@ export const TITLES = [
   'Mixed', 'Plasma', 'Truchet tiles', 'Mondrian', 'Automaton', 'Julia set', 'Rose', 'Bit games', 'Voronoi', 'Formula',
 ];
 export const FORMULA = 9;
-export const LONGEST_PROGRAM = 24;
+export const LONGEST_PROGRAM = 52;
 const FIRST_FORMULA = 'xy*4*s';
 
 const mod = (value, by) => ((value % by) + by) % by;
@@ -379,6 +379,10 @@ export function under(scene, u, v) {
   return W.aimAlong(g, origin, direction);
 }
 
+// Four steps of the formula to a number: after the two groups set aside for
+// it come the numbers the rooms leave unused.
+const FORMULA_SLOTS = [24, 25, 26, 27, 28, 29, 30, 31, 11, 19, 21, 22, 23];
+
 /** The thirty-two numbers handed to the shader, as listed in Gallery.metal. */
 export function shaderValues(scene) {
   const p = scene.place;
@@ -391,11 +395,11 @@ export function shaderValues(scene) {
     g.n, g.apothem, g.height, d.walls,
     d.rows, d.perRow, 0, 0,
     low[0], low[1], low[2], floorTurn(p),
-    high & 0xffff, high >>> 16, d.key, 1,
-    kindOfFloor(p.room[2]), d.program.length,
+    high & 0xffff, high >>> 16, d.key, 0,
+    kindOfFloor(p.room[2]) + 16 * d.program.length,
   ]);
   d.program.forEach((code, i) => {
-    values[24 + Math.floor(i / 3)] += code * (i % 3 === 0 ? 1 : i % 3 === 1 ? 64 : 4096);
+    values[FORMULA_SLOTS[Math.floor(i / 4)]] += code * 64 ** (i % 4);
   });
   return values;
 }
