@@ -14,6 +14,10 @@ vec2 saturate(vec2 x) { return clamp(x, 0.0, 1.0); }
 vec3 saturate(vec3 x) { return clamp(x, 0.0, 1.0); }
 bool isfinite(float x) { return !(isnan(x) || isinf(x)); }
 
+// A world's longer table of numbers (shaderData), 1024 to a row.
+uniform highp sampler2D uData;
+vec4 wData(int i) { return texelFetch(uData, ivec2(i % 1024, i / 1024), 0); }
+
 uniform vec4 markers[192];
 
 
@@ -206,6 +210,13 @@ vec2 fViewExtent(vec4 resolutionAndCone) {
     return vec2(aspect, 1.0) / min(aspect, 1.0);
 }
 
+// For flat worlds that pan and zoom with the orbit camera's own numbers,
+// looking straight down on the plane z = 0: the point of the plane under a
+// view point. Lines drawn by WorldLines.metal land in the same place.
+vec2 fPlane(vec2 uv, vec4 focus, vec4 camera) {
+    return focus.xy + uv * (camera.z * 0.4363636);
+}
+
 float fSegmentDistance(vec2 p, vec2 a, vec2 b) {
     vec2 ab = b - a;
     float t = saturate(dot(p - a, ab) / max(dot(ab, ab), 1e-12));
@@ -259,6 +270,11 @@ vec3 fDrawMarkers(
 //
 // v[0]: centre of the view (x, y), plane units per view unit, step limit
 // v[1]: picture (0 Mandelbrot set, 1 Julia set), c.x, c.y, small picture flag
+// v[2]: for the Mandelbrot set: the last step of the reference orbit, and
+//       where the reference c lies, measured from the centre of the view
+//
+// data holds the reference orbit: z₀, z₁, … for one c in the view, worked
+// out by the app with twice the digits a shader has.
 //
 // Markers are the flat worlds' own (see Flat2D.h), in view coordinates.
 
@@ -276,6 +292,39 @@ vec2 mandelEscape(vec2 z, vec2 c, int limit) {
             return vec2(float(i) + 2.0 - log2(0.5 * log2(r2)), first);
         }
         z = vec2(x2 - y2 + c.x, 2.0 * z.x * z.y + c.y);
+    }
+    if (first >= 0.0) { return vec2(float(limit), first); }
+    return vec2(-1.0, first);
+}
+
+// The same count for the c that lies dc from the reference c, found from
+// its difference to the reference orbit. The difference is tiny when the
+// view is, so the shader's short numbers describe it exactly where they
+// could not tell two values of c apart.
+vec2 mandelDeep(vec2 dc, int limit, int last) {
+    vec2 d = vec2(0.0);
+    int n = 0;
+    float first = -1.0;
+    for (int i = 0; i < limit; ++i) {
+        vec2 ref = wData(n).xy;
+        vec2 z = ref + d;
+        float r2 = dot(z, z);
+        if (first < 0.0 && r2 > 4.0) { first = float(i); }
+        if (r2 > 256.0) {
+            return vec2(float(i) + 2.0 - log2(0.5 * log2(r2)), first);
+        }
+        // When the orbit comes nearer zero than its difference is long, or
+        // the reference runs out, carry on from the start of the reference,
+        // which is zero.
+        if (r2 < dot(d, d) || n >= last) {
+            d = z;
+            n = 0;
+            ref = vec2(0.0);
+        }
+        // (ref + d)² + c, less the reference's own next value.
+        d = vec2(2.0 * (ref.x * d.x - ref.y * d.y) + d.x * d.x - d.y * d.y + dc.x,
+                   2.0 * (ref.x * d.y + ref.y * d.x) + 2.0 * d.x * d.y + dc.y);
+        n += 1;
     }
     if (first >= 0.0) { return vec2(float(limit), first); }
     return vec2(-1.0, first);
@@ -302,11 +351,13 @@ vec3 mandelColor(vec2 escape, int palette) {
 }
 
 vec3 mandelSample(vec2 uv, WorldUniforms u) {
-    vec2 plane = u.v[0].xy + uv * u.v[0].z;
     int limit = int(u.v[0].w);
-    vec2 escape = u.v[1].x > 0.5
-        ? mandelEscape(plane, u.v[1].yz, limit)
-        : mandelEscape(vec2(0.0), plane, limit);
+    vec2 escape;
+    if (u.v[1].x > 0.5) {
+        escape = mandelEscape(u.v[0].xy + uv * u.v[0].z, u.v[1].yz, limit);
+    } else {
+        escape = mandelDeep(uv * u.v[0].z - u.v[2].yz, limit, int(u.v[2].x));
+    }
     return mandelColor(escape, int(u.budget.z));
 }
 

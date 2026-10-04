@@ -21,7 +21,8 @@ const ORBIT = 7;
 const SPAN = 1.35;
 
 /** The nearest and farthest the picture can be seen from. */
-const DISTANCE_RANGE = [1.0 / 20000, 2.5];
+/** How close the view can come: where JavaScript's own numbers run out. */
+const DISTANCE_RANGE = [1.0 / 1e12, 2.5];
 
 const defaults = newState();
 defaults.values[CENTRE_X] = -0.6;
@@ -270,6 +271,31 @@ const tour = [
     },
   },
   {
+    title: 'Past the end of the numbers',
+    body: `
+      This dive goes to three million times. A graphics chip keeps
+      about seven digits, and long before this depth every pixel on
+      the screen would be the same number to it: the picture would
+      break up into blocks.
+
+      So the app follows one orbit in the view itself, with sixteen
+      digits, and hands it to the chip. Each pixel then works out
+      only how its own orbit differs from that one, and a small
+      difference needs few digits. The same trick, with more digits
+      for the one orbit, is how the deepest zooms ever made were
+      computed.`,
+    tryIt: 'Keep double-tapping; raise Rule → Step limit as you go',
+    build(base) {
+      const state = copyState(base);
+      state.values[INSET] = 0;
+      state.values[LIMIT] = 2500;
+      return [
+        keyframe(looking(state, -0.743643977, 0.131826294, 300), 6.0, 1.0),
+        keyframe(looking(state, -0.743643977, 0.131826294, 3000000), 16.0),
+      ];
+    },
+  },
+  {
     title: 'The other picture: Julia sets',
     body: `
       Now hold c fixed and ask a different question: which starting
@@ -333,6 +359,57 @@ const tour = [
 
 // MARK: World
 
+// MARK: The reference orbit
+
+const NO_REFERENCE = new Float32Array(4);
+const referenceCache = { key: '', value: { offset: [0, 0], last: 0, orbit: NO_REFERENCE } };
+
+/** One orbit, followed with JavaScript's full precision, that the shader
+    measures every pixel against (mandelDeep in the shader): where its c lies,
+    measured from the centre of the view, and z₀, z₁, … four numbers apiece. */
+function reference(state) {
+  const limit = stepLimit(state);
+  const middle = centre(state);
+  const key = [middle[0], middle[1], scale(state), limit].join(',');
+  if (key === referenceCache.key) { return referenceCache.value; }
+
+  const follow = (cx, cy) => {
+    const orbit = new Float32Array(4 * (limit + 1));
+    let x = 0, y = 0, last = 0;
+    for (let n = 1; n <= limit; n += 1) {
+      const next = x * x - y * y + cx;
+      y = 2 * x * y + cy;
+      x = next;
+      orbit[4 * n] = x;
+      orbit[4 * n + 1] = y;
+      last = n;
+      if (x * x + y * y > 1e6) { break; }
+    }
+    return { last, orbit };
+  };
+
+  // The longer the reference lasts, the better it serves: try the centre
+  // and a grid of other places in the view, and keep the one that stays
+  // longest.
+  let best = { offset: [0, 0], ...follow(middle[0], middle[1]) };
+  search: if (best.last < limit) {
+    for (let row = -3; row <= 3; row += 1) {
+      for (let column = -3; column <= 3; column += 1) {
+        if (row === 0 && column === 0) { continue; }
+        const offset = [column * 0.4 * scale(state), row * 0.4 * scale(state)];
+        const candidate = follow(middle[0] + offset[0], middle[1] + offset[1]);
+        if (candidate.last > best.last) {
+          best = { offset, ...candidate };
+          if (candidate.last >= limit) { break search; }
+        }
+      }
+    }
+  }
+  referenceCache.key = key;
+  referenceCache.value = best;
+  return best;
+}
+
 export const world = {
   id: 'mandelbrot',
   title: 'Mandelbrot and Julia sets',
@@ -358,7 +435,7 @@ export const world = {
       the border, points take longer and longer to decide, so a
       higher limit sharpens the edge and costs time.`, [
       picker('Picture', PICTURE, ['Mandelbrot set', 'Julia set']),
-      slider('Step limit', LIMIT, [20, 1500], value => String(Math.round(value))),
+      slider('Step limit', LIMIT, [20, 4000], value => String(Math.round(value))),
     ]),
     group('The number c', `
       Tap the Mandelbrot set to choose c: the yellow dot. The
@@ -385,9 +462,18 @@ export const world = {
 
       The picture is worked out afresh for every pixel at every
       zoom, so nothing is stored and nothing runs out, until the
-      numbers themselves do: past about 20,000× two neighbouring
-      pixels differ by less than the arithmetic can tell apart.`, [
-      readout('Centre', state => complex(centre(state), 5)),
+      numbers themselves do. A graphics chip keeps about seven
+      digits, and past 20,000× neighbouring pixels would agree
+      in all seven. So one orbit in the view is followed with
+      sixteen digits, and each pixel works out only how its own
+      orbit differs from that one. That reaches a million
+      million times, where sixteen digits run out in turn. The
+      deeper you go, the higher the step limit needs to be.
+
+      A Julia set is drawn the plain way, and blurs into blocks
+      past 20,000×.`, [
+      readout('Centre, real', state => state.values[CENTRE_X].toFixed(14)),
+      readout('Centre, imaginary', state => state.values[CENTRE_Y].toFixed(14)),
       readout('Width shown', state => Format.significant(2 * scale(state), 3)),
     ]),
   ],
@@ -406,8 +492,15 @@ export const world = {
     values[5] = chosen[0];
     values[6] = chosen[1];
     values[7] = state.values[INSET] > 0.5 ? 1 : 0;
+    if (!isJulia(state)) {
+      const ref = reference(state);
+      values[8] = ref.last;
+      values[9] = ref.offset[0];
+      values[10] = ref.offset[1];
+    }
     return values;
   },
+  shaderData: state => (isJulia(state) ? NO_REFERENCE : reference(state).orbit),
   discreteValues: new Set([PICTURE, INSET, ORBIT]),
   cameraBacksAwayWhenMoving: false,
   drag(state, probe, dx, dy) {
@@ -447,6 +540,6 @@ export const world = {
     state.values[C_X] = clamp(point[0], -2, 1);
     state.values[C_Y] = clamp(point[1], -1.5, 1.5);
   },
-  urlDigits: 10,
+  urlDigits: 16,
   shelf: SHELF,
 };

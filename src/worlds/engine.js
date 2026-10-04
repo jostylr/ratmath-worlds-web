@@ -400,7 +400,7 @@ export function start(world) {
     fail('This browser does not support WebGL 2.');
   } else {
     compile('scene', FULLSCREEN, world.fragment,
-      ['U.resolutionAndCone', 'U.camera', 'U.focus', 'U.budget', 'U.v[0]', 'markers[0]']);
+      ['U.resolutionAndCone', 'U.camera', 'U.focus', 'U.budget', 'U.v[0]', 'markers[0]', 'uData']);
     compile('present', FULLSCREEN, PRESENT, ['uScene']);
     if (world.lines) {
       compile('lines', LINE_VERTEX, LINE_FRAGMENT, ['uResolutionAndCone', 'uCamera', 'uFocus']);
@@ -481,6 +481,8 @@ export function start(world) {
     return out;
   };
 
+  let dataTexture = null;
+
   function draw(now) {
     if (!gl || !$('error').hidden) { return; }
     const ratio = Math.min(window.devicePixelRatio || 1, 1.5);
@@ -524,6 +526,25 @@ export function start(world) {
     gl.uniform4fv(scene.uniforms['U.budget'], budget);
     gl.uniform4fv(scene.uniforms['U.v[0]'], values);
     if (scene.uniforms['markers[0]']) { gl.uniform4fv(scene.uniforms['markers[0]'], markers.data); }
+    if (scene.uniforms.uData && world.shaderData) {
+      // A world's longer table of numbers, as a texture 1024 wide.
+      const table = world.shaderData(state);
+      const rows = Math.max(1, Math.ceil(table.length / 4096));
+      const padded = new Float32Array(4096 * rows);
+      padded.set(table);
+      if (!dataTexture || !gl.isTexture(dataTexture)) {
+        dataTexture = gl.createTexture();
+        gl.activeTexture(gl.TEXTURE1);
+        gl.bindTexture(gl.TEXTURE_2D, dataTexture);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+      }
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, dataTexture);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, 1024, rows, 0, gl.RGBA, gl.FLOAT, padded);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.uniform1i(scene.uniforms.uData, 1);
+    }
     gl.drawArrays(gl.TRIANGLES, 0, 3);
 
     const shared = program => {
