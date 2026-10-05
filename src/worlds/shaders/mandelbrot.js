@@ -412,7 +412,6 @@ vec4 mandelbrotFragment(vec4 inPosition, WorldUniforms u) {
     return vec4(color, 1.0);
 }
 
-
 uniform WorldUniforms U;
 out vec4 fragColor;
 
