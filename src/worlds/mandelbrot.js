@@ -61,7 +61,12 @@ function setCentre(x, y, state) {
 /** How many decimal places of the centre are worth showing. */
 const places = state => Math.min(Math.max(Math.ceil(-Math.log10(scale(state))) + 4, 6), 30);
 const c = state => [state.values[C_X], state.values[C_Y]];
-const stepLimit = state => Math.round(clamp(state.values[LIMIT], 2, 8000));
+/** The steps a point is given: what is asked for, or more where the view is
+    deep enough to need it. Without that, a deep view turns black. */
+function stepLimit(state) {
+  const zoom = Math.max(1 / Math.max(state.cameraDistance, 1e-30), 1);
+  return Math.round(Math.min(Math.max(state.values[LIMIT], 250 + 160 * Math.log10(zoom), 2), 8000));
+}
 
 function plane(viewPoint, state) {
   const s = scale(state);
@@ -505,6 +510,7 @@ export const world = {
       higher limit sharpens the edge and costs time.`, [
       picker('Picture', PICTURE, ['Mandelbrot set', 'Julia set']),
       slider('Step limit', LIMIT, [20, 8000], value => String(Math.round(value))),
+      readout('Steps in use', state => String(stepLimit(state))),
     ]),
     group('The number c', `
       Tap the Mandelbrot set to choose c: the yellow dot. The
