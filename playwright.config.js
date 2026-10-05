@@ -9,7 +9,7 @@ export default defineConfig({
   expect: { timeout: 15000 },
   use: {
     baseURL: 'http://127.0.0.1:8766',
-    viewport: { width: 640, height: 480 },
+    viewport: { width: 1100, height: 800 },
     reducedMotion: 'reduce',
     trace: 'retain-on-failure',
     launchOptions: { args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] }
