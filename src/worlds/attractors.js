@@ -144,6 +144,7 @@ const B = 5;
 const C = 6;
 const TIME = 7;
 const PLAY = 8;
+const SPEED = 29;
 const TWIN = 9;
 const DELTA_POWER = 10;
 const CLOUD = 11;
@@ -159,6 +160,7 @@ defaults.values[B] = 0.2;
 defaults.values[C] = 5.7;
 defaults.values[TIME] = DURATION;
 defaults.values[PLAY] = 1;
+defaults.values[SPEED] = 1;
 defaults.values[DELTA_POWER] = 5;
 defaults.values[START_X] = 2;
 defaults.values[START_X + 1] = 3;
@@ -184,14 +186,7 @@ function paths(state) {
 }
 
 /** How far along the paths the picture has reached, in time units. */
-function shownTime(state, clock) {
-  if (state.values[PLAY] > 0.5) {
-    // Six time units a second, pausing briefly at the end.
-    const cycle = DURATION + 12;
-    return Math.min((clock * 6) % cycle, DURATION);
-  }
-  return Math.min(Math.max(state.values[TIME], 0), DURATION);
-}
+function shownTime(state) { return state.values[TIME]; }
 
 /** The arrows of the rule, the cloud, and the two paths with their dots. */
 const LINE_CAPACITY = 2 * 9 * 7 * 9 + 2 * CLOUD_PATHS + 2 * COUNT;
@@ -482,6 +477,7 @@ export const world = {
       The path is computed in steps of 0.01 time units, each using
       four samples of the velocity (the Runge–Kutta method).`, [
       toggle('Play', PLAY),
+      slider('Playback speed', SPEED, [0.25, 2], value => value.toFixed(2) + '×'),
       slider('Time shown', TIME, [0, DURATION], one, state => state.values[PLAY] < 0.5),
       toggle('Flow arrows', ARROWS),
     ]),
@@ -534,5 +530,5 @@ export const world = {
   tour,
   discreteValues: new Set([SYSTEM, PLAY, TWIN, CLOUD, ARROWS, DELTA_POWER]),
   lines,
-  animates: true,
+  playback: { play: PLAY, speed: SPEED, value: TIME, rate: 6, period: DURATION + 12, maximum: DURATION },
 };

@@ -30,13 +30,9 @@ const normalize = v => {
 
 /** The screw S: a quarter turn about the staircase's axis and a rise of one flight. */
 function screw(p, times) {
-  let q = p;
-  if (times >= 0) {
-    for (let i = 0; i < times; i += 1) { q = [-q[2], q[1] + TURN_RISE / 4, q[0]]; }
-  } else {
-    for (let i = 0; i < -times; i += 1) { q = [q[2], q[1] - TURN_RISE / 4, -q[0]]; }
-  }
-  return q;
+  // Four quarter turns cancel. Work is constant even for a distant landing.
+  const q = turn(p, times);
+  return [q[0], p[1] + times * TURN_RISE / 4, q[2]];
 }
 
 function turn(d, times) {

@@ -1,6 +1,7 @@
 // Port of RatMathWorlds/Model/MandelbulbModel.swift.
 import * as M from './math.js';
 import * as Tour from './tour.js';
+import { reducedMotion } from './site.js';
 
 export class MandelbulbModel {
   parameters = M.defaultParameters();
@@ -32,6 +33,15 @@ export class MandelbulbModel {
   #changed() {
     this.#orbit = null;
     for (const listener of this.#listeners) { listener(); }
+  }
+
+  restoreScene(scene) {
+    this.endTour();
+    this.cancelAnimation();
+    this.#activeInteractions.clear();
+    this.isInteracting = false;
+    Object.assign(this, scene);
+    this.#changed();
   }
 
   /** Every parameter edit goes through here so dependants stay in step. */
@@ -289,7 +299,7 @@ export class MandelbulbModel {
   }
 
   showTourStep(index) {
-    if (index >= 0 && index < Tour.steps.length) { this.#showTourStep(index); }
+    if (Number.isInteger(index) && index >= 0 && index < Tour.steps.length) { this.#showTourStep(index); }
   }
 
   #showTourStep(index) {
@@ -308,6 +318,14 @@ export class MandelbulbModel {
   }
 
   #animate(keyframes) {
+    if (reducedMotion()) {
+      this.cancelAnimation();
+      this.#activeInteractions.clear();
+      this.isInteracting = false;
+      this.parameters = M.cloneParameters(keyframes.at(-1).target);
+      this.#changed();
+      return;
+    }
     this.#activeInteractions.clear();
     this.isInteracting = false;
     this.isAnimating = true;

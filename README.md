@@ -20,12 +20,20 @@ not work, because browsers refuse to load JavaScript modules from `file://`.
 
 Every world's page takes `?tourStep=N` to open directly on that tour stop,
 mirroring the native launch argument, and keeps the scene on screen in its address
-after `#`, so a copied link opens the same view.
+after `#`, so a copied link opens the same view. A scene in the hash takes
+precedence over a launch argument; launch arguments are removed when the scene
+is saved. Mandelbulb includes its shape, camera and orbit-explorer settings.
+Babel and the gallery include zoom as a fifth view number; old four-number
+addresses remain readable.
 
 ## Publish it
 
 The repository includes a GitHub Pages workflow
-(`.github/workflows/pages.yml`) that publishes it on every push to `main`. After
+(`.github/workflows/pages.yml`) that checks it on pull requests and publishes
+successful pushes to `main`. Deployment waits for the numerical regressions,
+Babel reference vectors, local link checks and Chromium browser scenarios.
+Only HTML, CSS, the favicon and `src/` go into the published `_site/` folder;
+repository files and tests stay out of the deployment. After
 pushing the repository to GitHub, switch it on once under
 **Settings → Pages → Source: GitHub Actions**. The site then appears at
 `https://<user>.github.io/<repository>/`.
@@ -33,6 +41,62 @@ pushing the repository to GitHub, switch it on once under
 All paths in the page are relative, so the folder also works unchanged on any
 other static host. A headset needs the page served over `https`, which Pages
 provides.
+
+## Controls and reading
+
+Each world's controls include **Share view**, **Bookmark view**, **Bookmarks**
+and **Picture quality**. Bookmarks stay in the current browser; storage or
+clipboard restrictions show a usable fallback. **Auto** adjusts resolution while
+moving and caps it on phones; **Economy** reduces the workload; **High** raises
+the resolution cap. A lost WebGL context shows a recovery message and rebuilds
+its resources when restored, preserving the scene.
+
+Babel always opens each book with its original page layout, including on a phone.
+**Reader mode** switches to larger, wrapping text with vertical scrolling and
+fixed page controls. The toggle applies to the current book and stays active
+when changing its pages; a newly opened book or a reload starts in the original
+layout. Empty shelves disable page controls.
+
+Eversion and attractors pause on the displayed frame and resume from it. Both
+have playback speed controls. Shared links capture a still frame. The browser's
+reduced-motion preference disables automatic playback and makes guided tours
+move directly to their destination. Background tabs stop drawing and advancing
+playback.
+
+The gallery's formula field reports stack underflow and overflow, maximum stack
+use, and how its results become colours. Invalid edits leave the last working
+picture visible.
+
+## Checks
+
+The site itself still needs no dependencies or build step. Development checks
+use Node.js 22 or newer:
+
+```bash
+npm test
+```
+
+This covers every world's tour states and scene serialization, malformed input,
+playback, formula evaluation rules, graphics recovery and XR startup cleanup.
+It also runs the Swift/JavaScript Babel reference vectors.
+
+The Chromium browser suite covers all world pages, tours, sharing, the phone
+reader, empty shelves, keyboard navigation, bookmarks and actual WebGL context
+loss/restoration. To run it locally:
+
+```bash
+npm ci
+npx playwright install chromium
+npm run test:browser
+```
+
+`tests/browser-smoke.html` also provides buttons for manually interrupting and
+restoring graphics in the main renderer types. Test files are excluded from the
+published site. `npm run prepare-site` prepares `_site/` for a static host.
+
+Real iPhone/Android performance, Safari behavior and headset interaction still
+need device testing. The desktop in-app browser smoke checks do not establish
+those results. Immersive mode remains explicitly experimental.
 
 ## Mandelbulb
 

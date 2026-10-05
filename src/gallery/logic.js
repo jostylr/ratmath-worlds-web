@@ -42,6 +42,25 @@ export function programOf(text) {
   return out.length <= LONGEST_PROGRAM ? out : null;
 }
 
+export function analyzeFormula(text) {
+  const program = programOf(text);
+  if (!program?.length) { return { valid: false, message: `Use a nonempty formula of at most ${LONGEST_PROGRAM} supported steps.` }; }
+  let depth = 0;
+  let maximum = 0;
+  const unary = new Set([24, 25, 26, 27, 28, 34, 36, 37, 38, 40]);
+  for (let i = 0; i < program.length; i += 1) {
+    const op = program[i];
+    const push = op <= 19 || op === 31;
+    const required = op === 31 || unary.has(op) ? 1 : push ? 0 : 2;
+    if (depth < required) { return { valid: false, message: `Step ${i + 1} (${SYMBOLS[op]}) needs ${required} values; only ${depth} ${depth === 1 ? 'is' : 'are'} on the stack.` }; }
+    if (push) { depth += 1; }
+    else if (!unary.has(op) && op !== 32) { depth -= 1; }
+    maximum = Math.max(maximum, depth);
+    if (depth > 8) { return { valid: false, message: `Step ${i + 1} exceeds the eight-value stack.` }; }
+  }
+  return { valid: true, depth, maximum, message: `${program.length} steps · stack peak ${maximum}/8 · ${depth >= 3 ? 'last three values give RGB' : 'last value gives colour'}` };
+}
+
 export const formulaText = design => design.program.map(code => SYMBOLS[code]).join('');
 
 // MARK: Design
@@ -170,8 +189,8 @@ export function addressText(scene, withView = false) {
   let out = `${designCode(p.design)}:${p.room.join(',')}`;
   if (hasPicture(p)) { out += `:${p.wall}.${p.picture}`; }
   if (withView) {
-    const degrees = radians => Math.round((radians * 180) / Math.PI);
-    out += `~${scene.x.toFixed(2)},${scene.z.toFixed(2)},${degrees(scene.yaw)},${degrees(scene.pitch)}`;
+    const degrees = radians => Number(((radians * 180) / Math.PI).toFixed(4));
+    out += `~${scene.x.toFixed(5)},${scene.z.toFixed(5)},${degrees(scene.yaw)},${degrees(scene.pitch)},${(scene.zoom ?? 1).toFixed(4)}`;
   }
   return out;
 }
@@ -185,7 +204,7 @@ export function parseAddress(input, base) {
   const tilde = text.lastIndexOf('~');
   if (tilde >= 0) {
     const numbers = text.slice(tilde + 1).split(',').map(Number);
-    if (numbers.length === 4 && numbers.every(Number.isFinite)) { view = numbers; }
+    if ((numbers.length === 4 || numbers.length === 5) && numbers.every(Number.isFinite)) { view = numbers; }
     text = text.slice(0, tilde);
   }
   const parts = text.split(':');
@@ -242,7 +261,8 @@ export function parseAddress(input, base) {
   if (view) {
     [scene.x, scene.z] = view;
     scene.yaw = (view[2] * Math.PI) / 180;
-    scene.pitch = (view[3] * Math.PI) / 180;
+    scene.pitch = clamp((view[3] * Math.PI) / 180, -1.45, 1.45);
+    if (view.length === 5) { scene.zoom = clamp(view[4], 0.3, 1.6); }
   }
   if (!view || !geometry(place.design).allows([scene.x, scene.z])) { standSensibly(scene); }
   return scene;

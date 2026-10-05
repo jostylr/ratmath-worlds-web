@@ -1,3 +1,7 @@
+import { sceneURL, mountTools, RenderQuality, reducedMotion } from '../site.js';
+import { compileProgram, manageGraphics } from '../graphics.js';
+import { worldSceneText, readWorldScene } from '../scene-state.js';
+import { advancePlayback } from '../playback.js';
 // The screen for one world: its picture, control panel and guided tour. This is
 // Worlds/Core in the app (WorldDefinition, WorldModel, WorldView and
 // WorldMetalView) for the web. Each world is a plain object with the same
@@ -395,28 +399,18 @@ export function start(world) {
   let meshBuffers = null;
 
   function compile(name, vertex, fragment, uniformNames) {
-    const program = gl.createProgram();
-    for (const [type, source] of [[gl.VERTEX_SHADER, vertex], [gl.FRAGMENT_SHADER, fragment]]) {
-      const shader = gl.createShader(type);
-      gl.shaderSource(shader, source);
-      gl.compileShader(shader);
-      if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS) && $('error').hidden) {
-        fail(`The ${name} shader failed to compile: ${gl.getShaderInfoLog(shader)}`);
-      }
-      gl.attachShader(program, shader);
-    }
-    gl.linkProgram(program);
-    if (!gl.getProgramParameter(program, gl.LINK_STATUS) && $('error').hidden) {
-      fail(`The ${name} shader failed to link: ${gl.getProgramInfoLog(program)}`);
-    }
+    const program = compileProgram(gl, vertex, fragment);
     const uniforms = {};
     for (const uniform of uniformNames) { uniforms[uniform] = gl.getUniformLocation(program, uniform); }
     programs[name] = { program, uniforms };
   }
 
-  if (!gl) {
-    fail('This browser does not support WebGL 2.');
-  } else {
+  const qualitySettings = new RenderQuality();
+  const graphics = manageGraphics(canvas, () => {
+    if (!gl) { throw new Error('WebGL 2 is unavailable.'); }
+    target = null;
+    lineBuffer = null;
+    meshBuffers = null;
     compile('scene', FULLSCREEN, world.fragment,
       ['U.resolutionAndCone', 'U.camera', 'U.focus', 'U.budget', 'U.v[0]', 'markers[0]', 'uData']);
     compile('present', FULLSCREEN, PRESENT, ['uScene']);
@@ -444,7 +438,7 @@ export function start(world) {
     }
     programs.plain = gl.createVertexArray();
     gl.bindVertexArray(programs.plain);
-  }
+  }, () => { dirty = true; });
 
   /** The sRGB picture the scene is drawn into, remade when the view changes size. */
   function prepareTarget(width, height) {
@@ -453,6 +447,7 @@ export function start(world) {
       gl.deleteTexture(target.color);
       gl.deleteRenderbuffer(target.depth);
       gl.deleteFramebuffer(target.frame);
+      target = null;
     }
     const color = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, color);
@@ -466,6 +461,10 @@ export function start(world) {
     gl.bindFramebuffer(gl.FRAMEBUFFER, frame);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, color, 0);
     gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, depth);
+    if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
+      gl.deleteTexture(color); gl.deleteRenderbuffer(depth); gl.deleteFramebuffer(frame);
+      throw new Error('The browser could not allocate the scene framebuffer. Try Economy picture quality.');
+    }
     target = { width, height, color, depth, frame };
   }
 
@@ -502,15 +501,15 @@ export function start(world) {
   let dataTexture = null;
 
   function draw(now) {
-    if (!gl || !$('error').hidden) { return; }
-    const ratio = Math.min(window.devicePixelRatio || 1, 1.5);
+    if (!graphics.ready || document.hidden || !$('error').hidden) { return; }
+    const ratio = qualitySettings.ratio(canvas, moving() || isPlaying(), now);
     const width = Math.max(1, Math.round(canvas.clientWidth * ratio));
     const height = Math.max(1, Math.round(canvas.clientHeight * ratio));
     if (canvas.width !== width || canvas.height !== height) {
       canvas.width = width;
       canvas.height = height;
     }
-    prepareTarget(width, height);
+    try { prepareTarget(width, height); } catch (error) { fail(error.message); return; }
 
     const yaw = Number.isFinite(state.yaw) ? clamp(state.yaw, -10000, 10000) : world.defaults.yaw;
     const pitch = Number.isFinite(state.pitch) ? clamp(state.pitch, ...pitchRange) : world.defaults.pitch;
@@ -518,13 +517,13 @@ export function start(world) {
       ? clamp(state.cameraDistance, ...distanceRange) : world.defaults.cameraDistance;
     const time = (now - began) / 1000;
     // Quality 1 leaves out occlusion and shadows while the picture is being moved.
-    const quality = interactions.size > 0 ? 1 : 2;
+    const quality = moving() || isPlaying() || qualitySettings.mode === 'economy' ? 1 : 2;
     const markers = packedMarkers(world.overlayMarkers?.(state) ?? [], distance);
 
     const resolutionAndCone = [width, height, 0.0003, verticalShift];
     const camera = [yaw, pitch, distance, quality];
     const focus = [finite(state.focus[0]), finite(state.focus[1]), finite(state.focus[2]), time];
-    const budget = [240, 40, state.palette, markers.count];
+    const budget = [quality === 1 ? 160 : 240, quality === 1 ? 0 : 40, state.palette, markers.count];
     const values = shaderValues();
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, target.frame);
@@ -592,8 +591,14 @@ export function start(world) {
       gl.uniform4fv(programs.mesh.uniforms.uV0, values.subarray(0, 4));
       gl.bindVertexArray(meshBuffers.array);
       gl.bindBuffer(gl.ARRAY_BUFFER, meshBuffers.vertices);
-      gl.bufferData(gl.ARRAY_BUFFER, mesh.vertices, gl.DYNAMIC_DRAW);
-      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, mesh.indices, gl.DYNAMIC_DRAW);
+      if (mesh.revision === undefined || meshBuffers.uploadedRevision !== mesh.revision) {
+        gl.bufferData(gl.ARRAY_BUFFER, mesh.vertices, gl.DYNAMIC_DRAW);
+        meshBuffers.uploadedRevision = mesh.revision;
+      }
+      if (meshBuffers.uploadedIndices !== mesh.indices) {
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, mesh.indices, gl.STATIC_DRAW);
+        meshBuffers.uploadedIndices = mesh.indices;
+      }
       gl.enable(gl.DEPTH_TEST);
       gl.depthFunc(gl.LESS);
       gl.disable(gl.CULL_FACE);
@@ -630,61 +635,26 @@ export function start(world) {
   // MARK: The scene, in the page's address
 
   // Flat worlds that zoom far need more digits to name a place.
-  const round = value => String(Number(finite(value).toFixed(world.urlDigits ?? 6)));
   let urlTimer = null;
 
   /** The scene as text: only what differs from the world's defaults. */
-  function sceneText() {
-    const d = world.defaults;
-    const parts = [];
-    let last = -1;
-    for (let i = 0; i < VALUE_COUNT; i += 1) {
-      if (round(state.values[i]) !== round(d.values[i])) { last = i; }
-    }
-    if (last >= 0) { parts.push('v=' + state.values.slice(0, last + 1).map(round).join(',')); }
-    const camera = [state.yaw, state.pitch, state.cameraDistance].map(round).join(',');
-    if (camera !== [d.yaw, d.pitch, d.cameraDistance].map(round).join(',')) { parts.push('c=' + camera); }
-    const focus = state.focus.map(round).join(',');
-    if (focus !== d.focus.map(round).join(',')) { parts.push('f=' + focus); }
-    if (state.palette !== d.palette) { parts.push('p=' + state.palette); }
-    return parts.join('&');
-  }
-
-  function readScene(text) {
-    const next = copyState(world.defaults);
-    for (const part of text.replace(/^#/, '').split('&')) {
-      const [key, value] = part.split('=');
-      if (value === undefined) { continue; }
-      const numbers = value.split(',').map(Number);
-      if (numbers.some(n => !Number.isFinite(n))) { continue; }
-      if (key === 'v') {
-        numbers.slice(0, VALUE_COUNT).forEach((n, i) => { next.values[i] = n; });
-      } else if (key === 'c' && numbers.length === 3) {
-        next.yaw = numbers[0];
-        next.pitch = clamp(numbers[1], ...pitchRange);
-        next.cameraDistance = clamp(numbers[2], ...distanceRange);
-      } else if (key === 'f' && numbers.length === 3) {
-        next.focus = numbers;
-      } else if (key === 'p' && numbers.length === 1) {
-        next.palette = clamp(Math.round(numbers[0]), 0, world.paletteNames.length - 1);
-      }
-    }
-    return next;
-  }
+  const sceneText = () => worldSceneText(state, world);
+  const readScene = text => readWorldScene(text, world);
 
   function scheduleURL() {
     if (urlTimer !== null) { return; }
     urlTimer = setTimeout(() => {
       urlTimer = null;
       const text = sceneText();
-      if (location.hash.replace(/^#/, '') !== text) {
-        history.replaceState(null, '', location.pathname + location.search + (text ? '#' + text : ''));
+      if (location.hash.replace(/^#/, '') !== text || new URLSearchParams(location.search).has('tourStep')) {
+        history.replaceState(null, '', sceneURL(text ? '#' + text : ''));
       }
     }, 250);
   }
 
   window.addEventListener('hashchange', () => {
     if (location.hash.replace(/^#/, '') === sceneText()) { return; }
+    endTour();
     animation = null;
     state = readScene(location.hash);
     changed();
@@ -867,7 +837,7 @@ export function start(world) {
     arrowup: [1, 0, 0], arrowdown: [-1, 0, 0], arrowleft: [0, -1, 0], arrowright: [0, 1, 0],
   };
   window.addEventListener('keydown', event => {
-    if (event.target.closest?.('input, textarea, select') || event.metaKey || event.ctrlKey || event.altKey) { return; }
+    if (event.target.closest?.('input, textarea, select, dialog') || event.metaKey || event.ctrlKey || event.altKey) { return; }
     const move = KEYS[event.key.toLowerCase()];
     if (!move || !world.step || tourIndex !== null) { return; }
     event.preventDefault();
@@ -878,6 +848,12 @@ export function start(world) {
 
   function animate(frames) {
     interactions.clear();
+    if (reducedMotion() && frames.length) {
+      animation = null;
+      state = copyState(frames.at(-1).target);
+      if (world.playback) { state.values[world.playback.play] = 0; }
+      changed(); refreshSpinner(); return;
+    }
     animation = frames.length > 0 ? { frames, index: 0, from: null, began: 0 } : null;
     refreshSpinner();
   }
@@ -1004,6 +980,7 @@ export function start(world) {
         timer = setTimeout(() => { timer = setInterval(() => step(...move), 70); }, 350);
       });
       for (const end of ['pointerup', 'pointerleave', 'pointercancel']) { button.addEventListener(end, stop); }
+      addEventListener('blur', stop);
       // The keyboard presses a button with a click and no pointer.
       button.addEventListener('click', event => { if (event.detail === 0) { step(...move); } });
     }
@@ -1122,8 +1099,10 @@ export function start(world) {
   if (matchMedia('(max-width: 700px)').matches) { $('controlsToggle').click(); }
 
   if (location.hash.length > 1) { state = readScene(location.hash); }
+  if (reducedMotion() && world.playback) { state.values[world.playback.play] = 0; }
+  mountTools($('controls'), { link: () => sceneURL(sceneText() ? '#' + sceneText() : ''), quality: qualitySettings, invalidate: () => { $('error').hidden = true; dirty = true; } });
   const query = new URLSearchParams(location.search);
-  if (query.has('tourStep')) {
+  if (location.hash.length <= 1 && query.has('tourStep')) {
     const index = Number(query.get('tourStep'));
     if (Number.isInteger(index) && index >= 0 && index < world.tour.length) { showTourStep(index); }
   }
@@ -1131,11 +1110,23 @@ export function start(world) {
   changed();
   new ResizeObserver(layout).observe(canvas);
 
+  const isPlaying = () => !!world.playback && state.values[world.playback.play] > 0.5;
+  let previousFrame = null;
+  canvas.addEventListener('webglcontextlost', () => { animation = null; interactions.clear(); pointers.clear(); pinch = null; previousFrame = null; refreshSpinner(); });
+  addEventListener('visibilitychange', () => {
+    previousFrame = null;
+    if (document.hidden) { animation = null; interactions.clear(); pointers.clear(); pinch = null; refreshSpinner(); }
+    qualitySettings.lastFrame = null; dirty = true;
+  });
   function loop(now) {
+    if (document.hidden || !graphics.ready) { previousFrame = null; requestAnimationFrame(loop); return; }
+    const dt = previousFrame === null ? 0 : Math.min((now - previousFrame) / 1000, 0.1);
+    previousFrame = now;
     stepAnimation(now);
+    if (advancePlayback(state, world.playback, dt)) { dirty = true; scheduleURL(); }
     // Worlds that move on their own are drawn continuously; the rest only
     // when something changes.
-    if (dirty || world.animates) {
+    if (dirty || (world.animates && !world.playback)) {
       dirty = false;
       draw(now);
       drawLabels();

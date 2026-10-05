@@ -4,6 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#05070f">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="RatMath Worlds: 2D worlds">
+  <meta property="og:description" content="Worlds with only two dimensions, where everything can be seen at once: the Mandelbrot set and its Julia sets, the pictures of chaos from period doubling to strange attractors and tangled borders, and Flatland as its inhabitants see it.">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <title>RatMath Worlds: 2D worlds</title>
   <meta name="description" content="Worlds with only two dimensions, where everything can be seen at once: the Mandelbrot set and its Julia sets, the pictures of chaos from period doubling to strange attractors and tangled borders, and Flatland as its inhabitants see it.">
   <link rel="stylesheet" href="style.css">
@@ -60,5 +64,9 @@
       </a>
     </nav>
   </main>
+  <script type="module">
+    import { mountTools } from './src/site.js';
+    mountTools(document.querySelector('main'));
+  </script>
 </body>
 </html>

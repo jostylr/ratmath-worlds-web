@@ -1,0 +1,16 @@
+{
+  "name": "ratmath-worlds-web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs && node babel-test.mjs",
+    "prepare-site": "node scripts/prepare-site.mjs",
+    "test:browser": "playwright test"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0"
+  }
+}

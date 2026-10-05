@@ -1,22 +1,11 @@
+import { compileProgram, manageGraphics } from './graphics.js';
+import { RenderQuality } from './site.js';
 // The windowed renderer: the counterpart of MandelbulbMetalView.swift.
 import { VERTEX, WINDOWED_FRAGMENT, IMMERSIVE_FRAGMENT, MAX_MARKERS } from './shaders.js';
 import { CAMERA_DISTANCE_RANGE, DEFAULT_CAMERA_DISTANCE, add, clamp, length, normalize, scale, sub } from './math.js';
 
 function compile(gl, fragmentSource) {
-  const program = gl.createProgram();
-  for (const [type, source] of [[gl.VERTEX_SHADER, VERTEX], [gl.FRAGMENT_SHADER, fragmentSource]]) {
-    const shader = gl.createShader(type);
-    gl.shaderSource(shader, source);
-    gl.compileShader(shader);
-    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-      throw new Error('Shader failed to compile: ' + gl.getShaderInfoLog(shader));
-    }
-    gl.attachShader(program, shader);
-  }
-  gl.linkProgram(program);
-  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-    throw new Error('Shader failed to link: ' + gl.getProgramInfoLog(program));
-  }
+  const program = compileProgram(gl, VERTEX, fragmentSource);
   const uniforms = {};
   const count = gl.getProgramParameter(program, gl.ACTIVE_UNIFORMS);
   for (let i = 0; i < count; ++i) {
@@ -72,19 +61,19 @@ export class Renderer {
   paused = false;
 
   #dirty = true;
-  #movingScale = 1;
-  #lastMovingFrame = null;
-  #frameTime = 16;
 
   constructor(canvas, model) {
     this.canvas = canvas;
     this.model = model;
     const gl = canvas.getContext('webgl2', { antialias: false, alpha: false, xrCompatible: true });
-    if (!gl) { throw new Error('This browser does not support WebGL 2.'); }
     this.gl = gl;
-    this.windowed = compile(gl, WINDOWED_FRAGMENT);
-    this.immersive = compile(gl, IMMERSIVE_FRAGMENT);
-    gl.bindVertexArray(gl.createVertexArray());
+    this.quality = new RenderQuality();
+    this.graphics = manageGraphics(canvas, () => {
+      if (!gl) { throw new Error('WebGL 2 is unavailable.'); }
+      this.windowed = compile(gl, WINDOWED_FRAGMENT);
+      this.immersive = compile(gl, IMMERSIVE_FRAGMENT);
+      gl.bindVertexArray(gl.createVertexArray());
+    }, () => this.invalidate());
 
     // Phones and tablets get the native iOS budgets; everything else the Mac's.
     this.constrained = matchMedia('(pointer: coarse)').matches;
@@ -104,33 +93,19 @@ export class Renderer {
 
   /** Draws a frame if anything changed. Call once per animation frame. */
   frame(now) {
-    if (this.paused) { return; }
+    if (this.paused || !this.graphics.ready || document.hidden) { return; }
     const model = this.model;
     const moving = model.isInteracting || model.isAnimating;
     if (!this.#dirty) {
-      this.#lastMovingFrame = null;
       return;
     }
     this.#dirty = false;
-
-    // While things move, trade resolution for frame rate from measured time.
-    if (moving && this.#lastMovingFrame !== null) {
-      this.#frameTime = this.#frameTime * 0.8 + (now - this.#lastMovingFrame) * 0.2;
-      if (this.#frameTime > 36) {
-        this.#movingScale = Math.max(0.3, this.#movingScale * 0.9);
-      } else if (this.#frameTime < 20) {
-        this.#movingScale = Math.min(1, this.#movingScale * 1.03);
-      }
-    }
-    this.#lastMovingFrame = moving ? now : null;
 
     const gl = this.gl;
     const canvas = this.canvas;
     const cssWidth = canvas.clientWidth, cssHeight = canvas.clientHeight;
     if (!(cssWidth > 0 && cssHeight > 0)) { return; }
-    const longest = Math.max(cssWidth, cssHeight);
-    const cap = this.constrained ? (moving ? 720 : 1280) : (moving ? 1200 : 2000);
-    const ratio = Math.min(devicePixelRatio || 1, cap / longest) * (moving ? this.#movingScale : 1);
+    const ratio = this.quality.ratio(canvas, moving, now);
     const width = Math.max(1, Math.floor(cssWidth * ratio));
     const height = Math.max(1, Math.floor(cssHeight * ratio));
     if (canvas.width !== width || canvas.height !== height) {
@@ -142,9 +117,9 @@ export class Renderer {
     const iterations = Math.round(finiteClamped(p.iterations, 2, 24, 12));
     // Quality 0 skips normals, 1 adds them, 2 adds occlusion and shadows.
     const stepBudget = this.constrained ? (moving ? 120 : 190) : 240;
-    const shadowBudget = moving ? 0 : (this.constrained ? 24 : 40);
+    const shadowBudget = moving || this.quality.mode === 'economy' ? 0 : (this.constrained ? 24 : 40);
     const pixelCone = moving ? 0.0006 : 0.0003;
-    const quality = moving ? 1 : 2;
+    const quality = moving || this.quality.mode === 'economy' ? 1 : 2;
 
     const target = this.windowed;
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);

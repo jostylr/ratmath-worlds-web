@@ -1,3 +1,5 @@
+import { sceneURL, mountTools, reducedMotion } from './site.js';
+import { bulbSceneText, readBulbScene } from './scene-state.js';
 // The interface: the counterpart of ContentView, TourCardView and
 // ExplorerPanelView in the native app.
 import * as M from './math.js';
@@ -136,7 +138,7 @@ function buildControls() {
   const immersiveSection = h('section', { hidden: true }, immersiveButton, immersiveNote);
   updaters.push(() => {
     immersiveSection.hidden = !state.immersiveSupported;
-    immersiveButton.textContent = immersive.isOpen ? 'Leave immersive space' : 'Enter immersive space';
+    immersiveButton.textContent = immersive.isOpen ? 'Leave immersive space' : 'Enter immersive space (experimental)';
   });
 
   $('controls').append(
@@ -588,8 +590,7 @@ function installGestures() {
   addEventListener('keydown', event => {
     if (!model.explorerIsOpen) { return; }
     const target = event.target;
-    if (target instanceof HTMLInputElement && target.type !== 'range' && target.type !== 'checkbox') { return; }
-    if (target instanceof HTMLSelectElement) { return; }
+    if (target.closest?.('input, textarea, select, button, a, dialog, [contenteditable]')) { return; }
     const direction = {
       ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1],
     }[event.key];
@@ -630,14 +631,34 @@ ImmersiveSession.isSupported().then(supported => {
 // `?tourStep=5` opens directly on that tour stop and `?explorer=1` in the
 // explorer, which gives repeatable views for screenshots and comparisons.
 const query = new URLSearchParams(location.search);
-if (query.has('tourStep')) {
+const savedScene = readBulbScene(location.hash);
+if (savedScene) {
+  model.restoreScene(savedScene);
+} else if (query.has('tourStep')) {
   model.showTourStep(Number(query.get('tourStep')));
 } else if (query.has('explorer')) {
   model.openExplorer();
 }
 
+let urlTimer = null;
+const currentLink = () => sceneURL(bulbSceneText(model));
+model.onChange(() => {
+  if (urlTimer !== null) { return; }
+  urlTimer = setTimeout(() => {
+    urlTimer = null;
+    history.replaceState(null, '', currentLink());
+  }, 250);
+});
+addEventListener('hashchange', () => {
+  const scene = readBulbScene(location.hash);
+  if (scene) { model.restoreScene(scene); }
+  else if (!location.hash) { model.restoreScene({ parameters: M.defaultParameters(), probe: [0, 0, 1], explorerIsOpen: false, probeStaysOnSurface: true, cameraFollowsProbe: true }); }
+});
+mountTools($('controls'), { link: currentLink, quality: renderer.quality, invalidate: () => renderer.invalidate() });
+
 function frame(now) {
   requestAnimationFrame(frame);
+  if (document.hidden || !renderer.graphics.ready) { return; }
   if (!immersive.isOpen) { model.tick(now); }
 
   // In a tall, narrow window the caption sits over the middle of the object,
@@ -659,6 +680,12 @@ function frame(now) {
   renderer.frame(now);
 }
 requestAnimationFrame(frame);
+
+canvas.addEventListener('webglcontextlost', () => model.cancelAnimation());
+addEventListener('visibilitychange', () => {
+  if (document.hidden) { model.cancelAnimation(); model.setInteraction('parameters', false); }
+  renderer.invalidate();
+});
 
 // For debugging from the console.
 window.ratmath = { model, renderer };

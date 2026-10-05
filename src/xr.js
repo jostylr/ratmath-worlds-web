@@ -27,11 +27,15 @@ export class ImmersiveSession {
   #frameTime = 14;
   #lastFrame = null;
   #stepBudget = 60;
+  #starting = false;
 
   constructor(renderer, model, onStateChange) {
     this.renderer = renderer;
     this.model = model;
     this.onStateChange = onStateChange;
+    renderer.canvas?.addEventListener('webglcontextlost', () => {
+      this.#session?.end().catch(() => {});
+    });
   }
 
   static async isSupported() {
@@ -45,37 +49,62 @@ export class ImmersiveSession {
   get isOpen() { return this.#session !== null; }
 
   async toggle() {
+    if (this.#starting) { return; }
     if (this.#session) {
       await this.#session.end();
       return;
     }
-    const gl = this.renderer.gl;
-    const session = await navigator.xr.requestSession('immersive-vr');
-    await gl.makeXRCompatible();
-    // The ray marcher cannot afford full headset resolution. A reduced
-    // framebuffer stands in for the native app's adaptive render quality.
-    const layer = new XRWebGLLayer(session, gl, { antialias: false, framebufferScaleFactor: 0.5 });
-    if (layer.fixedFoveation !== undefined && layer.fixedFoveation !== null) { layer.fixedFoveation = 1; }
-    session.updateRenderState({ baseLayer: layer, depthNear: 0.1, depthFar: 10 });
-    this.#space = await session.requestReferenceSpace('local');
-    this.#fractalCenter = null;
-    this.#lastFrame = null;
-    this.#session = session;
-    this.renderer.paused = true;
+    if (!this.renderer.graphics.ready) { throw new Error('The picture is not ready.'); }
+    this.#starting = true;
+    let session = null;
+    try {
+      const gl = this.renderer.gl;
+      session = await navigator.xr.requestSession('immersive-vr');
+      let ended = false;
+      session.addEventListener('end', () => {
+        ended = true;
+        if (this.#session === session) { this.#session = null; }
+        this.#space = null;
+        this.#grabs.clear();
+        this.model.setInteraction('rotation', false);
+        this.model.setInteraction('zoom', false);
+        this.renderer.paused = false;
+        this.renderer.invalidate();
+        this.onStateChange();
+      });
+      await gl.makeXRCompatible();
+      // The ray marcher cannot afford full headset resolution. A reduced
+      // framebuffer stands in for the native app's adaptive render quality.
+      const layer = new XRWebGLLayer(session, gl, { antialias: false, framebufferScaleFactor: 0.5 });
+      if (layer.fixedFoveation !== undefined && layer.fixedFoveation !== null) { layer.fixedFoveation = 1; }
+      session.updateRenderState({ baseLayer: layer, depthNear: 0.1, depthFar: 10 });
+      this.#space = await session.requestReferenceSpace('local');
+      if (ended) { return; }
+      this.#fractalCenter = null;
+      this.#lastFrame = null;
+      this.#frameTime = 14;
+      this.#stepBudget = 60;
+      this.#session = session;
+      this.renderer.paused = true;
 
-    session.addEventListener('selectstart', event => this.#grabs.set(event.inputSource, null));
-    session.addEventListener('selectend', event => this.#release(event.inputSource));
-    session.addEventListener('end', () => {
+      session.addEventListener('selectstart', event => this.#grabs.set(event.inputSource, null));
+      session.addEventListener('selectend', event => this.#release(event.inputSource));
+      session.addEventListener('inputsourceschange', event => {
+        for (const source of event.removed) { this.#release(source); }
+      });
+      session.requestAnimationFrame((time, frame) => this.#draw(time, frame));
+      this.onStateChange();
+    } catch (error) {
+      if (session) { try { await session.end(); } catch {} }
       this.#session = null;
+      this.#space = null;
       this.#grabs.clear();
       this.model.setInteraction('rotation', false);
       this.model.setInteraction('zoom', false);
       this.renderer.paused = false;
       this.renderer.invalidate();
-      this.onStateChange();
-    });
-    session.requestAnimationFrame((time, frame) => this.#draw(time, frame));
-    this.onStateChange();
+      throw error;
+    } finally { this.#starting = false; }
   }
 
   #release(source) {

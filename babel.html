@@ -4,6 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#010103">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="RatMath Worlds: Library of Babel">
+  <meta property="og:description" content="Borges's Library of Babel: walk its galleries, take any book down, and find the shelf of any text. Every address is a link.">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <title>RatMath Worlds: Library of Babel</title>
   <meta name="description" content="Borges's Library of Babel: walk its galleries, take any book down, and find the shelf of any text. Every address is a link.">
   <link rel="stylesheet" href="style.css">
@@ -29,7 +33,7 @@
     <form id="findForm">
       <h2 class="compact">Find a text</h2>
       <p class="caption">Type a line, or paste several: a picture made of characters works too. You are taken to the book that opens with it.</p>
-      <textarea id="findText" rows="8" spellcheck="false" autocapitalize="off"></textarea>
+      <textarea aria-label="Text to find" id="findText" rows="8" spellcheck="false" autocapitalize="off"></textarea>
       <p id="alphabet" class="caption"></p>
       <div class="buttons">
         <button type="button" id="findCancel">Cancel</button>
@@ -42,6 +46,7 @@
     <div class="volume panel">
       <header>
         <div><strong id="bookTitle"></strong><span id="bookWhere" class="caption"></span></div>
+        <button id="readerMode" aria-label="Reader mode" aria-pressed="false">Reader mode</button>
         <button id="putBack">✕ Put back</button>
       </header>
       <div id="cover"><div class="leaves"><pre id="page"></pre><pre id="leaf" hidden></pre></div></div>

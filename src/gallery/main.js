@@ -1,3 +1,5 @@
+import { sceneURL, mountTools, RenderQuality, reducedMotion } from '../site.js';
+import { compileProgram, manageGraphics } from '../graphics.js';
 // The art gallery page: drawing, walking, the address bar, the formula box,
 // picture labels, the controls and the tour. The page's address after # is
 // always the place on screen, in the same code the app's address bar takes.
@@ -19,40 +21,22 @@ const copyPlace = place => ({ ...place, design: { ...place.design, program: [...
 
 // MARK: Drawing
 
-function fail(message) {
-  $('error').textContent = message;
-  $('error').hidden = false;
-}
-
 const gl = canvas.getContext('webgl2', { antialias: false, alpha: false });
 let program = null;
 const uniforms = {};
-if (!gl) {
-  fail('This browser does not support WebGL 2.');
-} else {
-  program = gl.createProgram();
-  for (const [type, source] of [[gl.VERTEX_SHADER, VERTEX], [gl.FRAGMENT_SHADER, FRAGMENT]]) {
-    const shader = gl.createShader(type);
-    gl.shaderSource(shader, source);
-    gl.compileShader(shader);
-    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-      fail('The shader failed to compile: ' + gl.getShaderInfoLog(shader));
-    }
-    gl.attachShader(program, shader);
-  }
-  gl.linkProgram(program);
-  if (!gl.getProgramParameter(program, gl.LINK_STATUS) && $('error').hidden) {
-    fail('The shader failed to link: ' + gl.getProgramInfoLog(program));
-  }
+const quality = new RenderQuality();
+const graphics = manageGraphics(canvas, () => {
+  if (!gl) { throw new Error('WebGL 2 is unavailable.'); }
+  program = compileProgram(gl, VERTEX, FRAGMENT);
   for (const name of ['uResolution', 'uCamera', 'uV']) {
     uniforms[name] = gl.getUniformLocation(program, name);
   }
   gl.bindVertexArray(gl.createVertexArray());
-}
+}, () => { dirty = true; });
 
 function draw() {
-  if (!gl) { return; }
-  const ratio = Math.min(window.devicePixelRatio || 1, 1.5);
+  if (!graphics.ready || document.hidden) { return; }
+  const ratio = quality.ratio(canvas, animation !== null || held.size > 0 || stroll !== null);
   const width = Math.max(1, Math.round(canvas.clientWidth * ratio));
   const height = Math.max(1, Math.round(canvas.clientHeight * ratio));
   if (canvas.width !== width || canvas.height !== height) {
@@ -88,6 +72,12 @@ function arrive(next) {
 
 /** Plays keyframes: the place jumps, the viewer glides. */
 function animate(frames) {
+  if (reducedMotion()) {
+    const target = frames.at(-1)?.scene;
+    if (target) { scene = { ...target, place: copyPlace(target.place) }; changed(); }
+    animation = null;
+    return;
+  }
   animation = { frames, index: 0, from: null, began: null };
 }
 
@@ -128,7 +118,13 @@ function refreshBar() {
   $('bar').hidden = tourIndex !== null;
   if (document.activeElement !== addressInput) { addressInput.value = G.addressText(scene); }
   $('formulaRow').hidden = G.kindOfFloor(scene.place.room[2]) !== G.FORMULA;
-  if (document.activeElement !== formulaInput) { formulaInput.value = G.formulaText(scene.place.design); }
+  $('formulaStatus').hidden = $('formulaRow').hidden;
+  if (document.activeElement !== formulaInput) {
+    formulaInput.value = G.formulaText(scene.place.design);
+    const analysis = G.analyzeFormula(formulaInput.value);
+    formulaInput.setAttribute('aria-invalid', String(!analysis.valid));
+    $('formulaStatus').textContent = analysis.message;
+  }
 }
 
 function scheduleURL() {
@@ -136,7 +132,7 @@ function scheduleURL() {
   urlTimer = setTimeout(() => {
     urlTimer = null;
     const hash = '#' + G.addressText(scene, true);
-    if (decodeHash(location.hash) !== hash) { history.replaceState(null, '', hash); }
+    if (decodeHash(location.hash) !== hash || new URLSearchParams(location.search).has('tourStep')) { history.replaceState(null, '', sceneURL(hash)); }
   }, 250);
 }
 
@@ -180,14 +176,17 @@ $('copy').addEventListener('click', async () => {
 });
 window.addEventListener('hashchange', () => {
   const hash = decodeHash(location.hash);
-  if (hash.length > 1 && hash !== '#' + G.addressText(scene, true)) { go(hash); }
+  if (hash.length > 1 && hash !== '#' + G.addressText(scene, true)) { endTour(); go(hash); }
 });
 
 // The pictures change as the formula is typed, whenever it can be read.
 formulaInput.addEventListener('input', () => {
   const steps = G.programOf(formulaInput.value);
-  if (!steps || steps.length === 0) {
-    setFailure(`A formula uses x y r a t u, the digits, + - * /, and the letters s c q b f o z i e h l g p m n d w, up to ${G.LONGEST_PROGRAM} steps.`);
+  const analysis = G.analyzeFormula(formulaInput.value);
+  formulaInput.setAttribute('aria-invalid', String(!analysis.valid));
+  $('formulaStatus').textContent = analysis.message;
+  if (!analysis.valid) {
+    setFailure(null);
     return;
   }
   setFailure(null);
@@ -286,7 +285,7 @@ function climb(up) {
 }
 
 window.addEventListener('keydown', event => {
-  if (event.target.closest('input, textarea, select') || event.metaKey || event.ctrlKey || event.altKey) { return; }
+  if (event.target.closest('input, textarea, select, dialog') || event.metaKey || event.ctrlKey || event.altKey) { return; }
   if (tourIndex !== null) { return; }
   const key = event.key.toLowerCase();
   if (key in MOVES) {
@@ -298,6 +297,8 @@ window.addEventListener('keydown', event => {
 });
 window.addEventListener('keyup', event => held.delete(event.key.toLowerCase()));
 window.addEventListener('blur', () => held.clear());
+canvas.addEventListener('webglcontextlost', () => { held.clear(); animation = null; stroll = null; lastFrame = null; });
+window.addEventListener('visibilitychange', () => { held.clear(); lastFrame = null; if (document.hidden) { animation = null; stroll = null; } quality.lastFrame = null; dirty = true; });
 
 function stepStroll(dt) {
   if (!stroll) { return; }
@@ -428,6 +429,12 @@ function buildControls() {
       button.addEventListener('click', () => climb(key === 'e' ? 1 : -1));
       continue;
     }
+    button.addEventListener('click', event => {
+      if (event.detail !== 0) { return; } // Keyboard and assistive technology activation.
+      animation = null;
+      G.walk(scene, MOVES[key][0] * 0.25, MOVES[key][1] * 0.25, 0);
+      changed();
+    });
     button.addEventListener('pointerdown', () => held.add(key));
     for (const end of ['pointerup', 'pointerleave', 'pointercancel']) {
       button.addEventListener(end, () => held.delete(key));
@@ -508,10 +515,11 @@ function endTour() {
 buildControls();
 if (matchMedia('(max-width: 700px)').matches) { $('controlsToggle').click(); }
 
+mountTools($('controls'), { link: () => sceneURL('#' + G.addressText(scene, true)), quality, invalidate: () => { dirty = true; } });
 const query = new URLSearchParams(location.search);
 const startHash = decodeHash(location.hash);
 if (startHash.length > 1) { go(startHash); }
-if (query.has('tourStep')) {
+if (location.hash.length <= 1 && query.has('tourStep')) {
   const index = Number(query.get('tourStep'));
   if (Number.isInteger(index) && index >= 0 && index < TOUR.length) { showTourStep(index); }
 }
@@ -520,6 +528,7 @@ changed();
 new ResizeObserver(() => { dirty = true; }).observe(canvas);
 
 function loop(now) {
+  if (document.hidden || !graphics.ready) { lastFrame = null; requestAnimationFrame(loop); return; }
   stepAnimation(now);
   stepWalk(now);
   if (dirty) {

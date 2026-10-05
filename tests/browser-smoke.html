@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>RatMath browser checks</title>
+<style>body{margin:0;font:16px system-ui;background:#eee}nav{padding:10px}iframe{width:100%;height:calc(100vh - 80px);border:0}button,select{font:inherit;margin:4px}</style></head>
+<body><nav><label>World <select id="world"><option value="menger">Menger</option><option value="mandelbulb">Mandelbulb</option><option value="babel">Babel</option><option value="gallery">Gallery</option><option value="eversion">Eversion</option></select></label><button id="lose">Interrupt graphics</button><button id="restore">Restore graphics</button><span id="status" role="status">Ready</span></nav><iframe id="worldFrame" title="World under test" src="../menger.html"></iframe>
+<script type="module">
+const frame = document.querySelector('iframe');
+let extension = null;
+document.querySelector('select').addEventListener('change', event => { extension = null; frame.src = '../' + event.target.value + '.html'; });
+document.querySelector('#lose').addEventListener('click', () => {
+  const gl = frame.contentDocument.querySelector('#view').getContext('webgl2');
+  extension = gl.getExtension('WEBGL_lose_context');
+  if (extension) { extension.loseContext(); document.querySelector('#status').textContent = 'Graphics interrupted'; }
+  else { document.querySelector('#status').textContent = 'Context testing unavailable'; }
+});
+document.querySelector('#restore').addEventListener('click', () => { extension?.restoreContext(); document.querySelector('#status').textContent = 'Restore requested'; });
+</script></body></html>

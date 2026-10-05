@@ -684,8 +684,8 @@ export function addressText(place, view = null) {
     if (place.page > 0) { out += '.' + place.page; }
   }
   if (view) {
-    const degrees = radians => Math.round((radians * 180) / Math.PI);
-    out += `~${view.x.toFixed(2)},${view.z.toFixed(2)},${degrees(view.yaw)},${degrees(view.pitch)}`;
+    const degrees = radians => Number(((radians * 180) / Math.PI).toFixed(4));
+    out += `~${view.x.toFixed(5)},${view.z.toFixed(5)},${degrees(view.yaw)},${degrees(view.pitch)},${(view.zoom ?? 1).toFixed(4)}`;
   }
   return out;
 }
@@ -768,10 +768,11 @@ export function parseAddress(input, current) {
   const tilde = text.lastIndexOf('~');
   if (tilde >= 0) {
     const numbers = text.slice(tilde + 1).split(',').map(Number);
-    if (numbers.length === 4 && numbers.every(Number.isFinite)) {
+    if ((numbers.length === 4 || numbers.length === 5) && numbers.every(Number.isFinite)) {
       view = {
         x: numbers[0], z: numbers[1],
-        yaw: (numbers[2] * Math.PI) / 180, pitch: (numbers[3] * Math.PI) / 180,
+        yaw: (numbers[2] * Math.PI) / 180, pitch: Math.max(-1.45, Math.min(1.45, (numbers[3] * Math.PI) / 180)),
+        ...(numbers.length === 5 ? { zoom: Math.max(0.45, Math.min(1.6, numbers[4])) } : {}),
       };
     }
     text = text.slice(0, tilde);

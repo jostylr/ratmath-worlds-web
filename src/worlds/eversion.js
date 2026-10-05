@@ -104,6 +104,7 @@ function point(theta, phi, m, out, at) {
 // Indices into the state's values.
 const PROGRESS = 0;
 const PLAY = 1;
+const SPEED = 29;
 const SLATS = 2;
 const CUT = 3;
 const GRID = 4;
@@ -114,16 +115,13 @@ const COLUMNS = 192;
 const defaults = newState();
 defaults.values[GRID] = 1;
 defaults.values[PLAY] = 1;
+defaults.values[SPEED] = 1;
 defaults.yaw = 0.5;
 defaults.pitch = -0.4;
 defaults.cameraDistance = 4.4;
 
 /** The progress shown: the slider's, or a slow back-and-forth when playing. */
-function shownProgress(state, clock) {
-  if (!(state.values[PLAY] > 0.5)) { return state.values[PROGRESS]; }
-  const phase = (clock / 36) % 1;
-  return phase < 0.5 ? phase * 2 : 2 - phase * 2;
-}
+function shownProgress(state) { return state.values[PROGRESS]; }
 
 const VERTEX_COUNT = (ROWS + 1) * (COLUMNS + 1);
 const points = new Float64Array(3 * VERTEX_COUNT);
@@ -148,6 +146,7 @@ function mesh(state, probe, clock) {
   // A surface that is holding still is not worked out again.
   if (progress === meshProgress) { return surface; }
   meshProgress = progress;
+  surface.revision = progress;
   const m = parameters(progress);
   // The very poles are left out by a hair; the formulas divide by cos θ.
   const edge = 0.002;
@@ -400,6 +399,7 @@ export const world = {
       progress 0.5 neither side is favoured.`, [
       slider('Progress', PROGRESS, [0, 1], value => value.toFixed(3), state => state.values[PLAY] < 0.5),
       toggle('Play', PLAY),
+      slider('Playback speed', SPEED, [0.25, 2], value => value.toFixed(2) + '×'),
       readout('Stage', state => {
         if (!(state.values[PLAY] < 0.5)) { return 'playing'; }
         const m = parameters(state.values[PROGRESS]);
@@ -436,5 +436,5 @@ export const world = {
   },
   discreteValues: new Set([PLAY, GRID]),
   mesh,
-  animates: true,
+  playback: { play: PLAY, speed: SPEED, value: PROGRESS, rate: 1 / 18, period: 2, bounce: true },
 };

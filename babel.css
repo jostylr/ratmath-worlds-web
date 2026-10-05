@@ -167,3 +167,19 @@ dialog#find::backdrop { background: rgba(0, 0, 0, 0.4); }
 #label header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
 #labelLines { display: grid; gap: 6px; font-size: 0.8rem; color: var(--secondary); }
 #labelLines p { margin: 0; }
+
+/* Reader mode keeps every character, with readable type and a scrolling page. */
+#reader.reading .volume { width: min(100%, 760px); height: min(100%, 900px); overflow: hidden; }
+#reader.reading #cover { min-height: 0; flex: 1; overflow-y: auto; overscroll-behavior: contain; }
+#reader.reading #page { font: 400 18px / 1.65 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+#reader.reading #leaf { display: none; }
+.volume header { flex-wrap: wrap; }
+.volume header > div { flex: 1 1 120px; }
+.volume header button { flex-shrink: 0; }
+@media (max-width: 480px) {
+  #reader { padding: 8px; }
+  #reader.reading .volume { padding: 12px; gap: 8px; }
+  #reader.reading #cover { padding: 4px; }
+  #reader.reading #page { padding: 14px; font-size: 17px; }
+  .volume footer { gap: 6px; }
+}

@@ -169,7 +169,7 @@ button {
 }
 button:hover:not(:disabled) { background: var(--control-hover); }
 button:disabled { opacity: 0.4; cursor: default; }
-button:focus-visible, select:focus-visible, input:focus-visible, #view:focus-visible {
+button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visible, #view:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
@@ -236,3 +236,15 @@ input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent);
 .orbit-row span { overflow: hidden; text-overflow: ellipsis; }
 .worked { display: flex; justify-content: space-between; gap: 8px; font-size: 0.78rem; }
 .worked.strong { font-weight: 600; }
+
+.site-tools .row { flex-wrap: wrap; }
+.site-tools button { flex: 1; white-space: nowrap; }
+.site-tools input { width: 100%; }
+.bookmark-dialog { position: fixed; inset: 0; width: min(540px, calc(100vw - 32px)); max-height: 80dvh; margin: auto; }
+.bookmark-dialog::backdrop { background: #000a; }
+.bookmark-dialog a { flex: 1; }
+.start-here { border: 1px solid var(--line); border-radius: 16px; padding: 18px; margin: 24px 0; }
+.start-here a { color: var(--accent); }
+#graphics-status { position: fixed; z-index: 20; inset: auto 16px 16px; max-width: 540px; margin: auto; padding: 16px; border-radius: 14px; background: #111827; color: white; box-shadow: 0 8px 32px #0008; }
+#graphics-status p { margin: 0 0 12px; }
+#graphics-status button, #graphics-status a { margin-right: 12px; }

@@ -1,3 +1,5 @@
+import { sceneURL, mountTools, RenderQuality, reducedMotion } from '../site.js';
+import { compileProgram, manageGraphics } from '../graphics.js';
 // The Library of Babel page: drawing, walking, the address bar, the book in
 // hand, the controls and the tour. The page's address after # is always the
 // place on screen, in the same code the app's address bar takes.
@@ -21,40 +23,22 @@ const copyScene = s => ({ ...s, place: copyPlace(s.place) });
 
 // MARK: Drawing
 
-function fail(message) {
-  $('error').textContent = message;
-  $('error').hidden = false;
-}
-
 const gl = canvas.getContext('webgl2', { antialias: false, alpha: false });
 let program = null;
 const uniforms = {};
-if (!gl) {
-  fail('This browser does not support WebGL 2.');
-} else {
-  program = gl.createProgram();
-  for (const [type, source] of [[gl.VERTEX_SHADER, VERTEX], [gl.FRAGMENT_SHADER, FRAGMENT]]) {
-    const shader = gl.createShader(type);
-    gl.shaderSource(shader, source);
-    gl.compileShader(shader);
-    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-      fail('The shader failed to compile: ' + gl.getShaderInfoLog(shader));
-    }
-    gl.attachShader(program, shader);
-  }
-  gl.linkProgram(program);
-  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-    fail('The shader failed to link: ' + gl.getProgramInfoLog(program));
-  }
+const quality = new RenderQuality();
+const graphics = manageGraphics(canvas, () => {
+  if (!gl) { throw new Error('WebGL 2 is unavailable.'); }
+  program = compileProgram(gl, VERTEX, FRAGMENT);
   for (const name of ['uResolution', 'uCamera', 'uV']) {
     uniforms[name] = gl.getUniformLocation(program, name);
   }
   gl.bindVertexArray(gl.createVertexArray());
-}
+}, () => { dirty = true; });
 
 function draw() {
-  if (!gl) { return; }
-  const ratio = Math.min(window.devicePixelRatio || 1, 1.5);
+  if (!graphics.ready || document.hidden) { return; }
+  const ratio = quality.ratio(canvas, animation !== null || held.size > 0 || stroll !== null);
   const width = Math.max(1, Math.round(canvas.clientWidth * ratio));
   const height = Math.max(1, Math.round(canvas.clientHeight * ratio));
   if (canvas.width !== width || canvas.height !== height) {
@@ -95,6 +79,12 @@ function cancelAnimation() {
 
 /** Plays keyframes: the place jumps, the viewer glides. */
 function animate(frames) {
+  if (reducedMotion()) {
+    const target = frames.at(-1)?.scene;
+    if (target) { scene = { ...target, place: copyPlace(target.place) }; changed(); }
+    animation = null;
+    return;
+  }
   animation = { frames, index: 0, from: null, began: null };
 }
 
@@ -134,7 +124,7 @@ function refreshAddress() {
   if (document.activeElement !== addressInput) { addressInput.value = L.addressText(scene.place); }
 }
 
-const currentView = () => ({ x: scene.x, z: scene.z, yaw: scene.yaw, pitch: scene.pitch });
+const currentView = () => ({ x: scene.x, z: scene.z, yaw: scene.yaw, pitch: scene.pitch, zoom: scene.zoom });
 const fullAddress = () => L.addressText(scene.place, currentView());
 
 function scheduleURL() {
@@ -142,7 +132,7 @@ function scheduleURL() {
   urlTimer = setTimeout(() => {
     urlTimer = null;
     const hash = '#' + fullAddress();
-    if (decodeHash(location.hash) !== hash) { history.replaceState(null, '', hash); }
+    if (decodeHash(location.hash) !== hash || new URLSearchParams(location.search).has('tourStep')) { history.replaceState(null, '', sceneURL(hash)); }
   }, 250);
 }
 
@@ -187,7 +177,7 @@ $('copy').addEventListener('click', async () => {
 });
 window.addEventListener('hashchange', () => {
   const hash = decodeHash(location.hash);
-  if (hash.length > 1 && hash !== '#' + fullAddress()) { go(hash); }
+  if (hash.length > 1 && hash !== '#' + fullAddress()) { endTour(); go(hash); }
 });
 
 // Finding a text.
@@ -218,6 +208,19 @@ const reader = $('reader');
 let shownBook = null;   // key of the book whose text is in the reader
 let shownPage = 0;
 let turnTimer = null;
+let reading = false;
+
+function setReading(value) {
+  reading = value;
+  reader.classList.toggle('reading', value);
+  $('readerMode').setAttribute('aria-pressed', String(value));
+  $('readerMode').textContent = value ? 'Original page' : 'Reader mode';
+  clearTimeout(turnTimer);
+  $('leaf').hidden = true;
+  $('cover').scrollTop = 0;
+  fitPage();
+}
+$('readerMode').addEventListener('click', () => setReading(!reading));
 
 function fitPage() {
   const d = scene.place.design;
@@ -238,6 +241,7 @@ function refreshReader() {
   reader.hidden = !open;
   $('bar').hidden = open || tourIndex !== null;
   if (!open) {
+    clearTimeout(turnTimer);
     shownBook = null;
     return;
   }
@@ -249,6 +253,8 @@ function refreshReader() {
   if (key !== shownBook) {
     shownBook = key;
     shownPage = place.page;
+    // Each newly opened book begins with its original layout, on every device.
+    setReading(false);
     const look = W.bookLook(place);
     for (const [name, value] of Object.entries(look)) { reader.style.setProperty('--' + name, value); }
     $('bookTitle').textContent = book ? (L.titleOf(book, place.design) || 'untitled') : ' ';
@@ -264,8 +270,10 @@ function refreshReader() {
   fitPage();
   $('pageSlider').value = place.page;
   $('pageLabel').textContent = `page ${place.page} of ${place.design.pages}`;
-  $('previous').disabled = place.page <= 1;
-  $('next').disabled = place.page >= place.design.pages;
+  $('pageSlider').disabled = !book;
+  $('readerMode').disabled = !book;
+  $('previous').disabled = !book || place.page <= 1;
+  $('next').disabled = !book || place.page >= place.design.pages;
 }
 
 /**
@@ -276,6 +284,12 @@ function turnLeaf(oldText, newText, forward) {
   const page = $('page');
   const leaf = $('leaf');
   clearTimeout(turnTimer);
+  if (reading || reducedMotion()) {
+    page.textContent = newText;
+    leaf.hidden = true;
+    $('cover').scrollTop = 0;
+    return;
+  }
   leaf.style.transition = 'none';
   leaf.textContent = forward ? oldText : newText;
   leaf.style.transform = `rotateY(${forward ? 0 : -100}deg)`;
@@ -292,9 +306,12 @@ function turnLeaf(oldText, newText, forward) {
 
 function setPage(number, animated = true) {
   const target = clamp(number, 1, scene.place.design.pages);
-  if (scene.place.page === 0 || target === scene.place.page) { return; }
+  if (scene.place.page === 0 || !L.bookOf(scene.place) || target === scene.place.page) { return; }
   cancelAnimation();
   if (!animated) {
+    clearTimeout(turnTimer);
+    $('leaf').hidden = true;
+    $('cover').scrollTop = 0;
     shownPage = target;
     $('page').textContent = L.pageOf(L.bookOf(scene.place), scene.place.design, target).join('\n');
   }
@@ -321,7 +338,7 @@ $('cover').addEventListener('pointerup', event => {
   const dy = event.clientY - swipeStart[1];
   swipeStart = null;
   // A swipe, and not the selecting of a line of text.
-  if (Math.abs(dx) > 60 && Math.abs(dx) > 2 * Math.abs(dy) && event.pointerType !== 'mouse') {
+  if (!reading && Math.abs(dx) > 60 && Math.abs(dx) > 2 * Math.abs(dy) && event.pointerType !== 'mouse') {
     setPage(scene.place.page + (dx < 0 ? 1 : -1));
   }
 });
@@ -415,6 +432,8 @@ window.addEventListener('keydown', event => {
 });
 window.addEventListener('keyup', event => held.delete(event.key.toLowerCase()));
 window.addEventListener('blur', () => held.clear());
+canvas.addEventListener('webglcontextlost', () => { held.clear(); animation = null; stroll = null; lastFrame = null; });
+window.addEventListener('visibilitychange', () => { held.clear(); lastFrame = null; if (document.hidden) { animation = null; stroll = null; } quality.lastFrame = null; dirty = true; });
 
 /** The walk a click has set going: { goal, climb }. */
 let stroll = null;
@@ -559,6 +578,12 @@ function buildControls() {
       button.addEventListener('click', () => climb(key === 'e' ? 1 : -1));
       continue;
     }
+    button.addEventListener('click', event => {
+      if (event.detail !== 0) { return; } // Keyboard and assistive technology activation.
+      cancelAnimation();
+      W.walk(scene, MOVES[key][0] * 0.25, MOVES[key][1] * 0.25, 0);
+      changed();
+    });
     button.addEventListener('pointerdown', () => held.add(key));
     for (const end of ['pointerup', 'pointerleave', 'pointercancel']) {
       button.addEventListener(end, () => held.delete(key));
@@ -649,10 +674,11 @@ function endTour() {
 buildControls();
 if (matchMedia('(max-width: 700px)').matches) { $('controlsToggle').click(); }
 
+mountTools($('controls'), { link: () => sceneURL('#' + fullAddress()), quality, invalidate: () => { dirty = true; } });
 const query = new URLSearchParams(location.search);
 const startHash = decodeHash(location.hash);
 if (startHash.length > 1 && !go(startHash)) { changed(); }
-if (query.has('tourStep')) {
+if (location.hash.length <= 1 && query.has('tourStep')) {
   const index = Number(query.get('tourStep'));
   if (Number.isInteger(index) && index >= 0 && index < TOUR.length) { showTourStep(index); }
 }
@@ -664,6 +690,7 @@ new ResizeObserver(() => {
 }).observe(canvas);
 
 function loop(now) {
+  if (document.hidden || !graphics.ready) { lastFrame = null; requestAnimationFrame(loop); return; }
   stepAnimation(now);
   stepWalk(now);
   if (dirty) {
