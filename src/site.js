@@ -5,6 +5,7 @@ export function sceneURL(hash) {
   const query = new URLSearchParams(location.search);
   query.delete('tourStep');
   query.delete('explorer');
+  query.delete('ride');
   return location.pathname + (query.size ? '?' + query : '') + hash;
 }
 

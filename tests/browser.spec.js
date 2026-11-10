@@ -100,3 +100,26 @@ test('bookmarks retain a view in this browser', async ({ page }) => {
   await page.getByRole('button', { name: 'Bookmarks', exact: true }).click();
   await expect(page.getByRole('dialog').getByRole('link', { name: 'Menger sponge', exact: true })).toBeVisible();
 });
+
+test('Mandelbrot ride moves by itself, pauses for a drag, and ends cleanly', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.goto('/mandelbrot.html'); await ready(page);
+  await page.locator('#ridePill').click();
+  await expect(page.locator('#tourCard')).toBeVisible();
+  await expect(page.locator('#rideCaption')).not.toBeEmpty();
+  await expect.poll(() => page.locator('#rideZoom').textContent()).not.toBe('1.00×');
+  const view = page.locator('#view');
+  const box = await view.boundingBox();
+  await page.mouse.move(box.x + box.width * 0.7, box.y + 100);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width * 0.7 + 40, box.y + 140, { steps: 4 });
+  await page.mouse.up();
+  await expect(page.locator('#ridePause')).toHaveText('▶ Carry on');
+  await page.locator('#ridePause').click();
+  await expect(page.locator('#ridePause')).toHaveText('⏸ Pause');
+  await page.getByRole('button', { name: 'End ride', exact: true }).click();
+  await expect(page.locator('#tourCard')).toBeHidden();
+  await expect(page.locator('#ridePill')).toBeVisible();
+  expect(errors).toEqual([]);
+});

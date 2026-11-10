@@ -269,7 +269,8 @@ vec3 fDrawMarkers(
 // The Mandelbrot set and its Julia sets: z → z² + c, repeated.
 //
 // v[0]: centre of the view (x, y), plane units per view unit, step limit
-// v[1]: picture (0 Mandelbrot set, 1 Julia set), c.x, c.y, small picture flag
+// v[1]: picture (0 Mandelbrot set, 1 Julia set, between the two faded
+//       together), c.x, c.y, small picture flag
 // v[2]: for the Mandelbrot set: the last step of the reference orbit, and
 //       where the reference c lies, measured from the centre of the view
 //
@@ -352,13 +353,20 @@ vec3 mandelColor(vec2 escape, int palette) {
 
 vec3 mandelSample(vec2 uv, WorldUniforms u) {
     int limit = int(u.v[0].w);
-    vec2 escape;
-    if (u.v[1].x > 0.5) {
-        escape = mandelEscape(u.v[0].xy + uv * u.v[0].z, u.v[1].yz, limit);
-    } else {
-        escape = mandelDeep(uv * u.v[0].z - u.v[2].yz, limit, int(u.v[2].x));
+    int palette = int(u.budget.z);
+    // How much of the picture is the Julia set. Between 0 and 1 (on the
+    // ride, crossing from one picture to the other) both are drawn and
+    // faded into each other.
+    float julia = saturate(u.v[1].x);
+    vec3 color = vec3(0.0);
+    if (julia < 1.0) {
+        color = mandelColor(mandelDeep(uv * u.v[0].z - u.v[2].yz, limit, int(u.v[2].x)), palette);
     }
-    return mandelColor(escape, int(u.budget.z));
+    if (julia > 0.0) {
+        vec3 other = mandelColor(mandelEscape(u.v[0].xy + uv * u.v[0].z, u.v[1].yz, limit), palette);
+        color = mix(color, other, julia);
+    }
+    return color;
 }
 
 // The small picture at the top: the Julia set of c beside the Mandelbrot

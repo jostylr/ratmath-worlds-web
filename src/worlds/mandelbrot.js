@@ -6,6 +6,7 @@ import { newState, copyState, keyframe, slider, picker, toggle, readout, group, 
 import { Wide } from './wide.js';
 import { SHELF, WHITE, YELLOW, CYAN, PINK, dot, segment, blend, complex } from './flat-support.js';
 import { FRAGMENT } from './shaders/mandelbrot.js';
+import { mandelbrotRide } from './mandelbrot-ride.js';
 
 // Indices into the state's values.
 const CENTRE_X = 0;
@@ -20,6 +21,9 @@ const C_Y = 4;
 const LIMIT = 5;
 const INSET = 6;
 const ORBIT = 7;
+/** On the ride, how far the picture has faded from the Mandelbrot set
+    toward the Julia set, while Picture still says the Mandelbrot set. */
+const FADE = 10;
 
 /** Plane units from the centre of the view to the edge of its shorter side,
     at 1× zoom. */
@@ -563,6 +567,7 @@ export const world = {
     Drag to move the picture and pinch to zoom. Double-tap a spot to dive
     toward it. A single tap on the Mandelbrot set chooses c.`,
   tour,
+  ride: mandelbrotRide({ PICTURE, C_X, C_Y, INSET, ORBIT, LIMIT, FADE, CENTRE_X, CENTRE_Y }, setCentre),
   shaderValues(state) {
     const chosen = c(state);
     const values = new Array(32).fill(0);
@@ -570,7 +575,7 @@ export const world = {
     values[1] = state.values[CENTRE_Y];
     values[2] = scale(state);
     values[3] = stepLimit(state);
-    values[4] = isJulia(state) ? 1 : 0;
+    values[4] = isJulia(state) ? 1 : clamp(state.values[FADE], 0, 1);
     values[5] = chosen[0];
     values[6] = chosen[1];
     values[7] = state.values[INSET] > 0.5 ? 1 : 0;

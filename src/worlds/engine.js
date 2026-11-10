@@ -381,6 +381,8 @@ export function start(world) {
   let dirty = true;
   let tourIndex = null;
   let animation = null;
+  /** While the ride is on: its planner, settings, and whether it is paused. */
+  let ride = null;
   let verticalShift = 0;
   const interactions = new Set();
   const began = performance.now();
@@ -655,6 +657,7 @@ export function start(world) {
   window.addEventListener('hashchange', () => {
     if (location.hash.replace(/^#/, '') === sceneText()) { return; }
     endTour();
+    endRide();
     animation = null;
     state = readScene(location.hash);
     changed();
@@ -675,6 +678,7 @@ export function start(world) {
     if (active) {
       // The person's hands win over any animation in progress.
       animation = null;
+      if (ride && !ride.paused) { pauseRide(); }
       interactions.add(kind);
     } else {
       interactions.delete(kind);
@@ -884,7 +888,7 @@ export function start(world) {
 
   function animate(frames) {
     interactions.clear();
-    if (reducedMotion() && frames.length) {
+    if (reducedMotion() && frames.length && !ride) {
       animation = null;
       state = copyState(frames.at(-1).target);
       if (world.playback) { state.values[world.playback.play] = 0; }
@@ -905,6 +909,10 @@ export function start(world) {
     const linear = frame.duration > 0 ? Math.min(elapsed / frame.duration, 1) : 1;
     const eased = linear * linear * (3 - 2 * linear);
     state = interpolate(animation.from, frame.target, eased, world, frame.direct);
+    if (frame.caption !== undefined && ride && ride.caption !== frame.caption) {
+      ride.caption = frame.caption;
+      refreshRideCard();
+    }
     if (elapsed >= frame.duration + frame.hold) {
       animation.index += 1;
       animation.from = null;
@@ -962,6 +970,7 @@ export function start(world) {
       <a class="back" href="${world.shelf?.href ?? 'index.html'}">‹ ${escapeHTML(world.shelf?.title ?? 'All worlds')}</a>
       <div><p class="eyebrow">${escapeHTML(world.title)}</p><h2 class="compact">${escapeHTML(world.formula)}</h2></div>
       <button id="tourStart">▶ Guided tour</button>
+      ${world.ride ? `<button id="rideStart">🎢 ${escapeHTML(world.ride.title)}</button>` : ''}
       ${world.controlGroups.map(g => section(g.title, g.note, g.controls.map(c => controlHTML(c, id++)).join(''))).join('')}
       ${section('View', world.viewNote, `
         <label class="row"><span class="title">Zoom</span><span class="value" id="zoomValue"></span>
@@ -1021,6 +1030,7 @@ export function start(world) {
       button.addEventListener('click', event => { if (event.detail === 0) { step(...move); } });
     }
     $('tourStart').addEventListener('click', () => showTourStep(0));
+    $('rideStart')?.addEventListener('click', () => startRide());
     $('resetView').addEventListener('click', resetView);
     $('resetShape').addEventListener('click', resetShape);
   }
@@ -1029,6 +1039,10 @@ export function start(world) {
 
   function refreshControls() {
     refreshExtra?.(state);
+    if (ride && $('rideZoom')) {
+      $('rideZoom').textContent = Format.significant(magnification(), 3) + '×';
+      $('rideWhere').textContent = world.ride.where?.(state) ?? '';
+    }
     const panel = $('controls');
     if (panel.hidden || panel.classList.contains('touring')) { return; }
     for (const row of panel.querySelectorAll('[data-control]')) {
@@ -1069,6 +1083,7 @@ export function start(world) {
   }
 
   function showTourStep(index) {
+    endRide();
     tourIndex = index;
     const stop = world.tour[index];
     const last = index === world.tour.length - 1;
@@ -1112,12 +1127,113 @@ export function start(world) {
 
   $('tourPill').addEventListener('click', () => showTourStep(0));
 
+  // MARK: Ride
+
+  /** The ride's settings are the viewer's own, kept between visits. */
+  const rideKey = key => `ratmath.ride.${world.id}.${key}`;
+  function rideSettings() {
+    const settings = {};
+    for (const setting of world.ride.settings) {
+      let value = setting.initial;
+      try {
+        const stored = Number(localStorage.getItem(rideKey(setting.key)));
+        if (localStorage.getItem(rideKey(setting.key)) !== null && Number.isFinite(stored)) {
+          value = clamp(stored, ...setting.range);
+        }
+      } catch { /* storage may be unavailable */ }
+      settings[setting.key] = value;
+    }
+    return settings;
+  }
+
+  function startRide(seed) {
+    if (!world.ride) { return; }
+    endTour();
+    ride = { planner: world.ride.start(seed), settings: rideSettings(), paused: false, caption: '' };
+    $('tourCard').innerHTML = `
+      <header><p class="eyebrow">${escapeHTML(world.ride.title)} · ${escapeHTML(world.title)}</p>
+        <button id="rideEnd" class="plain" aria-label="End ride">✕</button></header>
+      <div class="body"><p id="rideCaption"></p></div>
+      <div class="readout"><span id="rideWhere"></span><span id="rideZoom"></span></div>
+      <details id="rideSettings"><summary class="caption">Speed and depth</summary>
+        ${world.ride.settings.map(setting => `<label class="row" data-ride="${setting.key}">
+          <span class="title">${escapeHTML(setting.title)}</span><span class="value"></span>
+          <input type="range" min="${setting.range[0]}" max="${setting.range[1]}" step="any" value="${ride.settings[setting.key]}"></label>`).join('')}
+        <p class="caption">${paragraphs(world.ride.note).map(escapeHTML).join(' ')}</p>
+      </details>
+      <footer><button id="ridePause">⏸ Pause</button><span class="spacer"></span>
+        <span id="tourSpinner" class="spinner" aria-label="Moving"></span>
+        <button id="rideNext" class="prominent">Next spot ›</button></footer>`;
+    $('tourCard').hidden = false;
+    $('controls').classList.add('touring');
+    $('controlsToggle').hidden = true;
+    $('modeButtons').hidden = true;
+    $('rideEnd').addEventListener('click', endRide);
+    $('ridePause').addEventListener('click', () => (ride.paused ? resumeRide() : pauseRide()));
+    $('rideNext').addEventListener('click', resumeRide);
+    $('rideSettings').addEventListener('input', event => {
+      const row = event.target.closest('[data-ride]');
+      if (!row) { return; }
+      ride.settings[row.dataset.ride] = Number(event.target.value);
+      try { localStorage.setItem(rideKey(row.dataset.ride), event.target.value); } catch { /* not kept */ }
+      refreshRideCard();
+    });
+    refreshRideCard();
+    layout();
+  }
+
+  function pauseRide() {
+    if (!ride) { return; }
+    ride.paused = true;
+    animation = null;
+    ride.caption = 'Paused. Look around, then carry on from here.';
+    refreshSpinner();
+    refreshRideCard();
+  }
+
+  /** Starts a fresh round from wherever the view is now. */
+  function resumeRide() {
+    if (!ride) { return; }
+    ride.paused = false;
+    animation = null;
+    refreshRideCard();
+  }
+
+  function endRide() {
+    if (!ride) { return; }
+    ride = null;
+    animation = null;
+    world.ride.settle?.(state);
+    $('tourCard').hidden = true;
+    $('controls').classList.remove('touring');
+    $('controlsToggle').hidden = false;
+    $('modeButtons').hidden = false;
+    layout();
+    changed();
+  }
+
+  function refreshRideCard() {
+    if (!ride || !$('rideCaption')) { return; }
+    $('rideCaption').textContent = ride.caption;
+    $('ridePause').textContent = ride.paused ? '▶ Carry on' : '⏸ Pause';
+    for (const row of $('tourCard').querySelectorAll('[data-ride]')) {
+      const setting = world.ride.settings.find(s => s.key === row.dataset.ride);
+      row.querySelector('.value').textContent = setting.display(ride.settings[setting.key]);
+    }
+  }
+
+  if (world.ride) {
+    $('modeButtons').insertAdjacentHTML('beforeend',
+      `<button id="ridePill" class="pill">🎢 ${escapeHTML(world.ride.title)}</button>`);
+    $('ridePill').addEventListener('click', () => startRide());
+  }
+
   /** In a tall, narrow window the caption sits over the middle of the
       picture, so the picture is drawn higher up. */
   function layout() {
     const tall = canvas.clientHeight > canvas.clientWidth * 1.2;
     document.body.classList.toggle('tall', tall);
-    verticalShift = tall && tourIndex !== null ? 0.62 : 0;
+    verticalShift = tall && (tourIndex !== null || ride !== null) ? 0.62 : 0;
     dirty = true;
   }
 
@@ -1141,6 +1257,10 @@ export function start(world) {
   if (location.hash.length <= 1 && query.has('tourStep')) {
     const index = Number(query.get('tourStep'));
     if (Number.isInteger(index) && index >= 0 && index < world.tour.length) { showTourStep(index); }
+  } else if (location.hash.length <= 1 && query.has('ride') && world.ride) {
+    // ?ride starts the ride, and ?ride=7 always takes the same route.
+    const seed = Number(query.get('ride'));
+    startRide(query.get('ride') !== '' && Number.isInteger(seed) ? seed : undefined);
   }
   layout();
   changed();
@@ -1158,6 +1278,10 @@ export function start(world) {
     if (document.hidden || !graphics.ready) { previousFrame = null; requestAnimationFrame(loop); return; }
     const dt = previousFrame === null ? 0 : Math.min((now - previousFrame) / 1000, 0.1);
     previousFrame = now;
+    // The ride goes on with another round whenever nothing else is moving.
+    if (ride && !ride.paused && animation === null && interactions.size === 0) {
+      animate(ride.planner.next(state, ride.settings));
+    }
     stepAnimation(now);
     walkHeld(now, dt);
     // A world may walk on by itself, as after a tap in the Escher stairs.
