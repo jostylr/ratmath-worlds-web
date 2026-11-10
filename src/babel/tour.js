@@ -31,7 +31,7 @@ export const TOUR = [
       '“The universe (which others call the Library) is composed of an indefinite, perhaps infinite, number of hexagonal galleries.” So begins the story Jorge Luis Borges published in 1941.',
       'This is one gallery, built to his description. Four of its six walls carry five shelves each, and every shelf holds thirty-two books: 640 books in the room. In the middle is an air shaft with a low railing. Two lamps give a light that is “insufficient, incessant”.',
     ],
-    tryIt: 'Drag to look round; W A S D to walk',
+    tryIt: 'Drag to look round; tap the floor to walk there',
     build() {
       const start = stop('borges:0');
       return [

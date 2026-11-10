@@ -451,7 +451,7 @@ const tour = [
       The space joins up with itself after two floors, in all three
       directions, the way a circle joins up with itself after one lap.
       Floors that pass out of sight above come back from below.`,
-    tryIt: 'Hold the up arrow and count the bands',
+    tryIt: 'Hold the up arrow, or tap the stairs ahead, and count the bands',
     build(base) {
       const start = at(base, 0.5, 0.45, 0.15);
       const end = at(base, 8.5, 0.45, 0.15);
