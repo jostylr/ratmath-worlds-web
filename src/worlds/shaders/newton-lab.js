@@ -78,7 +78,13 @@ vec3 wShade(
     float rim = pow(saturate(1.0 + dot(normal, viewDirection)), 3.0);
     float sky = 0.5 + 0.5 * normal.y;
 
+    // A cool fill light from the far side of the key, so that faces turned
+    // away from the key are still told apart.
+    vec3 fillDirection = normalize(vec3(-lightDirection.x, 0.25, -lightDirection.z));
+    float fill = saturate(dot(normal, fillDirection));
+
     vec3 color = albedo * vec3(1.0, 0.94, 0.86) * (1.55 * diffuse * shadow);
+    color += albedo * vec3(0.30, 0.36, 0.48) * fill * (0.4 + 0.6 * occlusion);
     color += albedo * mix(vec3(0.05, 0.045, 0.06), vec3(0.16, 0.20, 0.30), sky) * occlusion;
     color += vec3(1.0, 0.95, 0.85) * specular * shadow * 0.22;
     color += vec3(0.16, 0.26, 0.52) * rim * occlusion * 0.35;
