@@ -183,6 +183,7 @@ gallery.html#=xy*4*s:0,0,9
 | `eversion.html` | Sphere eversion | `src/worlds/eversion.js` | `Worlds/Eversion/EversionWorld.swift` |
 | `attractors.html` | Strange attractors | `src/worlds/attractors.js` | `Worlds/Dynamics/AttractorWorld.swift` |
 | `lorentz.html` | Near the speed of light | `src/worlds/lorentz.js` | `Worlds/Relativity/LorentzWorld.swift` |
+| `geodesics.html` | Geodesics | `src/worlds/geodesics.js` | `Worlds/Geodesics/GeodesicWorld.swift` |
 
 The library's **2D worlds** card opens a second shelf, `flat.html`, of flat pictures
 that are dragged to pan, scrolled or pinched to zoom about the pointer, and

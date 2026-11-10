@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#010103">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="RatMath Worlds: Geodesics">
+  <meta property="og:description" content="Walk straight ahead on a curved surface and see where you end up. Parallel walkers meet on a sphere and part on a saddle, a torus has both, and a triangle&#x27;s angles add up to more or less than 180° by exactly the curvature inside it.">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <title>RatMath Worlds: Geodesics</title>
+  <meta name="description" content="Walk straight ahead on a curved surface and see where you end up. Parallel walkers meet on a sphere and part on a saddle, a torus has both, and a triangle&#x27;s angles add up to more or less than 180° by exactly the curvature inside it.">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="worlds.css">
+</head>
+<body>
+  <noscript><p id="error">RatMath Worlds needs JavaScript and WebGL 2.</p></noscript>
+  <script type="module">
+    import { start } from './src/worlds/engine.js';
+    import { world } from './src/worlds/geodesics.js';
+    start(world);
+  </script>
+</body>
+</html>

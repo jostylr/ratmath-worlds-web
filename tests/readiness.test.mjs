@@ -18,7 +18,7 @@ import { compileProgram, manageGraphics } from '../src/graphics.js';
 import { RenderQuality, sceneURL } from '../src/site.js';
 
 const root = new URL('../', import.meta.url);
-const worlds = ['menger', 'hyperbolic-plane', 'hyperbolic-space', 'recursive-room', 'escher', 'four-d', 'quaternion-julia', 'topology', 'eversion', 'attractors', 'mandelbrot', 'flatland', 'logistic', 'newton', 'henon', 'chaos-game', 'pendulum', 'penrose', 'lorentz', 'apollonian'];
+const worlds = ['menger', 'hyperbolic-plane', 'hyperbolic-space', 'recursive-room', 'escher', 'four-d', 'quaternion-julia', 'topology', 'eversion', 'attractors', 'mandelbrot', 'flatland', 'logistic', 'newton', 'henon', 'chaos-game', 'pendulum', 'penrose', 'geodesics', 'lorentz', 'apollonian'];
 
 for (const name of worlds) {
   test(`${name}: defaults and every tour frame are finite and round-trip`, async () => {
