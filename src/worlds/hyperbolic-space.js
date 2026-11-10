@@ -358,8 +358,8 @@ const tour = [
     title: 'Room grows exponentially',
     body: `
       The fog is lifting. Within two units of you there is room for
-      a few dozen of these cubes. Within four, several thousand.
-      Within eight, over ten million.
+      about forty of these cubes. Within four, about 2,700. Within
+      eight, about eight million.
 
       The volume inside distance d grows like e^(2d), where ordinary
       space manages only d³. Almost all of the space within any
