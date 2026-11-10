@@ -294,6 +294,11 @@ float esBox(vec3 p, vec3 centre, vec3 halfSize) {
     return length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0);
 }
 
+// A box with its edges rounded off by r, so that edges catch the light.
+float esRoundBox(vec3 p, vec3 centre, vec3 halfSize, float r) {
+    return esBox(p, centre, halfSize - r) - r;
+}
+
 float esBox2(vec2 p, vec2 halfSize) {
     vec2 q = abs(p) - halfSize;
     return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
@@ -318,8 +323,8 @@ EscherHit escherPiece(vec3 q, int m) {
     float inner = ES_L - ES_W;
 
     // Landing: a thin slab in the corner, with its top at height 0.
-    float d = esBox(q, vec3(ES_C, -0.5 * ES_T, ES_C),
-                    vec3(0.5 * ES_W, 0.5 * ES_T, 0.5 * ES_W));
+    float d = esRoundBox(q, vec3(ES_C, -0.5 * ES_T, ES_C),
+                         vec3(0.5 * ES_W, 0.5 * ES_T, 0.5 * ES_W), 0.02);
 
     // Eight steps, each a tread and the riser in front of it, so that the
     // underside is a staircase too. Only the nearest three can matter.
@@ -328,10 +333,10 @@ EscherHit escherPiece(vec3 q, int m) {
     for (float i = max(nearest - 1.0, 0.0); i <= min(nearest + 1.0, 7.0); i += 1.0) {
         float top = -0.25 * ES_H + (i + 1.0) * ES_RISE;
         float front = -inner + i * ES_RUN;
-        d = min(d, esBox(q, vec3(ES_C, top - 0.5 * ES_T, front + 0.5 * ES_RUN),
-                         vec3(0.5 * ES_W, 0.5 * ES_T, 0.5 * ES_RUN + 0.5 * ES_T)));
-        d = min(d, esBox(q, vec3(ES_C, top - 0.5 * (ES_RISE + ES_T), front),
-                         vec3(0.5 * ES_W, 0.5 * (ES_RISE + ES_T), 0.5 * ES_T)));
+        d = min(d, esRoundBox(q, vec3(ES_C, top - 0.5 * ES_T, front + 0.5 * ES_RUN),
+                              vec3(0.5 * ES_W, 0.5 * ES_T, 0.5 * ES_RUN + 0.5 * ES_T), 0.018));
+        d = min(d, esRoundBox(q, vec3(ES_C, top - 0.5 * (ES_RISE + ES_T), front),
+                              vec3(0.5 * ES_W, 0.5 * (ES_RISE + ES_T), 0.5 * ES_T), 0.018));
     }
     hit.distance = d;
     hit.kind = 1.0;
@@ -354,9 +359,9 @@ EscherHit escherPiece(vec3 q, int m) {
         for (int side = 0; side < 2; ++side) {
             vec3 centre = escherDoorCentre(side);
             vec2 inDoor = q.xy - centre.xy;
-            float frame = max(max(esBox2(inDoor, vec2(0.5 * ES_W + 0.12)),
+            float frame = max(max(esBox2(inDoor, vec2(0.5 * ES_W + 0.10)) - 0.02,
                                   -esBox2(inDoor, vec2(0.5 * ES_W - 0.10))),
-                              abs(q.z - ES_L) - 0.07);
+                              abs(q.z - ES_L) - 0.07) - 0.008;
             if (frame < hit.distance) {
                 hit.distance = frame;
                 hit.kind = 4.0 + float(side);
@@ -386,7 +391,7 @@ EscherHit escherScene(vec3 p) {
             continue;
         }
         // The pillar the stairs wind round.
-        float pillar = esBox2(q.xz, vec2(ES_L - ES_W));
+        float pillar = esBox2(q.xz, vec2(ES_L - ES_W - 0.04)) - 0.04;
         if (pillar < best.distance) {
             best.distance = pillar;
             best.kind = 3.0;
@@ -629,6 +634,11 @@ vec4 escherFragment(vec4 inPosition, WorldUniforms u) {
         travel += lastStep;
         if (travel > reach) { break; }
     }
+    // A ray that ran out of steps while grazing a surface has as good as
+    // found it; drawing fog there leaves dark cracks along the stairs.
+    if (!hitSomething && travel <= reach && hit.kind > 0.5 && hit.distance < 0.02 + 0.004 * travel) {
+        hitSomething = true;
+    }
 
     // The far distance is a soft dusk, a little lighter toward the middle.
     vec3 fog = mix(vec3(0.035, 0.045, 0.075), vec3(0.10, 0.11, 0.15),
@@ -687,8 +697,25 @@ vec4 escherFragment(vec4 inPosition, WorldUniforms u) {
             occlusion -= max(away - escherScene(p + normal * away).distance, 0.0) * (0.9 / float(i));
         }
         occlusion = saturate(occlusion);
+        // A soft shadow from the light, toward whichever side of the
+        // surface faces it.
+        float shadow = 1.0;
+        if (u.camera.w > 1.5 && u.budget.y > 0.5) {
+            vec3 toward = lightDirection * (facing >= 0.0 ? 1.0 : -1.0);
+            float s = 0.04;
+            int shadowSteps = int(u.budget.y);
+            for (int i = 0; i < shadowSteps && s < 7.0; ++i) {
+                EscherHit occluder = escherScene(p + normal * 0.01 + toward * s);
+                float d = occluder.kind > 0.5 ? occluder.distance : max(occluder.distance, 0.3);
+                shadow = min(shadow, 10.0 * d / s);
+                if (shadow < 0.02) { break; }
+                s += clamp(d, 0.03, 0.6);
+            }
+            shadow = smoothstep(0.0, 1.0, saturate(shadow));
+        }
+        diffuse *= 0.25 + 0.75 * shadow;
         vec3 halfVector = normalize(lightDirection - rd);
-        float specular = pow(saturate(dot(normal, halfVector)), 30.0) * gloss;
+        float specular = pow(saturate(dot(normal, halfVector)), 30.0) * gloss * shadow;
         color = albedo * (0.20 + 0.75 * diffuse + 0.30 * fill) * (0.35 + 0.65 * occlusion)
             + specular * (0.3 + 0.5 * diffuse);
         color = mix(color, fog, 1.0 - exp(-travel * 0.06));

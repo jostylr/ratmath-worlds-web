@@ -227,10 +227,13 @@ function arrive(state) {
   state.yaw = Math.atan2(Math.sin(yaw), Math.cos(yaw));
 }
 
-/** One step forward (1) or back (−1): along whichever of the stairs ahead,
-    the stairs behind, or the door the walker is facing. */
+/** One pace forward (positive) or back (negative), its size the size of
+    `direction`: along whichever of the stairs ahead, the stairs behind, or
+    the door the walker is facing. */
 function walk(state, direction) {
   const v = state.values;
+  const pace = Math.abs(direction);
+  if (pace === 0) { return; }
   if (v[DOOR] > 0) {
     v[DOOR] += 0.04 * direction;
     if (v[DOOR] >= 1) { arrive(state); }
@@ -248,17 +251,60 @@ function walk(state, direction) {
     // 45° to the other, and the stairs back are behind.
     if (doorHere(state) !== null && near(Math.PI / 4, 0.75)) {
       v[STAIR] = round(v[STAIR]);
-      v[DOOR] = 0.04;
+      v[DOOR] = 0.04 * pace;
     } else if (near(-Math.PI / 4, 0.8)) {
-      v[STAIR] += 0.03;
+      v[STAIR] += 0.03 * pace;
     } else if (near(-Math.PI * 0.75, 0.8) || near(Math.PI * 1.25, 0.8)) {
-      v[STAIR] -= 0.03;
+      v[STAIR] -= 0.03 * pace;
     }
   } else if (Math.cos(facing) > 0.2) {
-    v[STAIR] += 0.03;
+    v[STAIR] += 0.03 * pace;
   } else if (Math.cos(facing) < -0.2) {
-    v[STAIR] -= 0.03;
+    v[STAIR] -= 0.03 * pace;
   }
+}
+
+// MARK: Tap to walk
+
+/** A walk started by a tap: a turn toward the spot, then on to the next
+    landing or through a door. */
+let stroll = null;
+
+function tap(state, viewPoint) {
+  const zoom = defaults.cameraDistance / state.cameraDistance;
+  stroll = {
+    turnBy: Math.atan(viewPoint[0] * 1.15 / Math.max(zoom, 0.3)),
+    yaw: state.yaw,
+    pitch: state.pitch,
+    turned: 0,
+    walked: 0,
+    count: state.values[COUNT],
+    from: isAtLanding(state) ? landing(state) : null,
+  };
+}
+
+function advance(state, dt) {
+  if (stroll === null || dt <= 0) { return false; }
+  const s = stroll;
+  if (s.turned < 1) {
+    s.turned = Math.min(1, s.turned + dt / 0.3);
+    const t = s.turned * s.turned * (3 - 2 * s.turned);
+    state.yaw = s.yaw - s.turnBy * t;
+    state.pitch = s.pitch * (1 - t) + 0.05 * t;
+    return true;
+  }
+  const before = [...state.values];
+  s.walked += dt;
+  const ramp = Math.min(1, 0.3 + s.walked / 0.3);
+  walk(state, ramp * dt * 15);
+  const moved = state.values.some((value, i) => value !== before[i]);
+  if (!moved || state.values[COUNT] !== s.count || s.walked > 10) {
+    stroll = null;
+  } else if (state.values[DOOR] === 0 && isAtLanding(state) && landing(state) !== s.from && s.walked > 0.1) {
+    state.values[STAIR] = round(state.values[STAIR]);
+    stroll = null;
+  }
+  return moved;
 }
 
 // MARK: World
@@ -323,7 +369,7 @@ const tour = [
       They are all the same shape. Three of them share this space, one
       about each of its three directions, woven past one another
       without touching.`,
-    tryIt: 'Drag to look around; arrow keys to walk',
+    tryIt: 'Drag to look around; tap a flight of stairs to walk to it',
     build(base) {
       const start = at(base, 0.5, 0.9, 0.1);
       const end = at(base, 1.6, 1.3, -0.25);
@@ -356,7 +402,7 @@ const tour = [
       We walk through, and are rolled half-way over as we go. We arrive
       standing on the underside of the landing we just left. Down is
       now the other way.`,
-    tryIt: 'Face a door and press the up arrow',
+    tryIt: 'Tap a door to walk through it',
     build: base => passage(at(base, 4), 0.6, -0.1),
   },
   {
@@ -429,8 +475,9 @@ const tour = [
   {
     title: 'Your turn',
     body: `
-      Walk with the arrow keys: up and down to move, left and right to
-      turn. On a landing, turn to face the door and walk into it.
+      Tap where you want to go: a flight of stairs ahead or behind, or
+      a door on a landing. Or hold the arrow keys: up and down to move,
+      left and right to turn.
 
       There are six realms: wood, marble, brass, slate, iron and tile.
       See whether you can stand on all six, and then find your way
@@ -450,9 +497,11 @@ export const world = {
   paletteNames: ['Realms'],
   controlGroups: [
     group('Walk', `
-      The arrow keys walk: up and down move you forward and back
-      along whatever you are facing, left and right turn you. W A S D
-      and the buttons do the same, and dragging looks around.
+      Tap a spot to turn toward it and walk there: to the next landing
+      along the stairs, or through a door. The arrow keys walk while
+      held: up and down move you forward and back along whatever you
+      are facing, left and right turn you. W A S D and the buttons do
+      the same, and dragging looks around.
 
       On a corner landing with a door, the door stands 45° to one
       side and the next flight 45° to the other. Turn to face the
@@ -528,10 +577,13 @@ export const world = {
   discreteValues: new Set([CHART, SIDE, COUNT, ...[0, 1, 2, 3, 4, 5].map(i => HISTORY + i)]),
   cameraBacksAwayWhenMoving: false,
   step(state, probe, forward, right) {
+    stroll = null;
     if (forward !== 0) { walk(state, forward); }
     if (right !== 0) { state.yaw -= 0.07 * right; }
   },
-  stepHint: 'Arrow keys or W A S D: up and down walk, left and right turn.',
+  tap,
+  advance,
+  stepHint: 'Tap where you want to go. Or hold the arrow keys or W A S D: up and down walk, left and right turn.',
   resetView(state) {
     state.values = [...defaults.values];
     state.yaw = defaults.yaw;

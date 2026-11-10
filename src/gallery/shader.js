@@ -200,6 +200,24 @@ float bShaftInside(vec2 p, BabelDesign D) {
 
 // MARK: Surfaces
 
+// Smooth value noise, for wear and mottling.
+float bNoise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    uint ix = uint(int(i.x) + 4096);
+    uint iy = uint(int(i.y) + 4096);
+    float a = bUnit(bCombine(ix, iy), 1u);
+    float b = bUnit(bCombine(ix + 1u, iy), 1u);
+    float c = bUnit(bCombine(ix, iy + 1u), 1u);
+    float d = bUnit(bCombine(ix + 1u, iy + 1u), 1u);
+    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+
+float bFbm(vec2 p) {
+    return 0.55 * bNoise(p) + 0.30 * bNoise(p * 2.13 + 7.1) + 0.15 * bNoise(p * 4.37 + 3.3);
+}
+
 struct BabelSurface {
     vec3 albedo;
     vec3 normal;
@@ -220,7 +238,8 @@ vec3 bFloor(vec2 p, BabelStyle s, uint seed) {
         float edge = 0.5 - max(abs(g.x), dot(abs(g), vec2(0.5, 0.8660254)));
         uint id = uint(int(floor(cell.x * 2.0 + 0.5)) * 73856093) ^ uint(int(floor(cell.y * 2.0 + 0.5)) * 19349663);
         vec3 c = mix(s.floorA, s.floorB, step(0.5, bUnit(id ^ seed, 1u)));
-        return c * (edge < 0.035 ? 0.45 : 1.0);
+        c *= 0.86 + 0.24 * bFbm(p * 3.0);
+        return c * mix(0.45, 1.0, smoothstep(0.02, 0.05, edge));
     }
     if (s.floorKind == 1) {
         // Planks.
@@ -229,19 +248,25 @@ vec3 bFloor(vec2 p, BabelStyle s, uint seed) {
         float along = p.x / 1.3 + bUnit(id, 1u);
         uint plank = id ^ uint(int(floor(along))) * 40503u;
         vec3 c = mix(s.wood * 1.5, s.wood * 2.4, bUnit(plank, 2u));
+        // Grain runs along the plank.
+        c *= 0.82 + 0.3 * bFbm(vec2(p.x * 1.5, p.y * 40.0) + vec2(bUnit(plank, 3u) * 50.0, 0.0));
         float seam = min(fract(p.y / 0.17), fract(along) * 7.0);
-        return c * (seam < 0.05 ? 0.5 : 1.0);
+        return c * mix(0.5, 1.0, smoothstep(0.03, 0.08, seam));
     }
     if (s.floorKind == 2) {
         vec2 cell = floor(p / 0.5);
         bool dark = mod(abs(cell.x + cell.y), 2.0) > 0.5;
-        return dark ? s.floorB : s.floorA;
+        vec2 f = fract(p / 0.5);
+        float seam = min(min(f.x, f.y), min(1.0 - f.x, 1.0 - f.y));
+        vec3 c = (dark ? s.floorB : s.floorA) * (0.86 + 0.24 * bFbm(p * 4.0));
+        return c * mix(0.7, 1.0, smoothstep(0.0, 0.03, seam));
     }
     vec2 cell = floor(p / 0.9);
     uint id = uint(int(cell.x) * 73856093) ^ uint(int(cell.y) * 19349663) ^ seed;
     vec2 f = fract(p / 0.9);
     float seam = min(min(f.x, f.y), min(1.0 - f.x, 1.0 - f.y));
-    return s.stone * (0.75 + 0.3 * bUnit(id, 1u)) * (seam < 0.012 ? 0.5 : 1.0);
+    return s.stone * (0.75 + 0.3 * bUnit(id, 1u)) * (0.85 + 0.25 * bFbm(p * 3.0))
+        * mix(0.5, 1.0, smoothstep(0.006, 0.02, seam));
 }
 
 // Coursed stone: big blocks with slightly different tones.
@@ -251,7 +276,24 @@ vec3 bStone(vec2 p, BabelStyle s, uint seed) {
     uint id = uint(int(row) * 7919) ^ uint(int(floor(along)) * 104729) ^ seed;
     vec2 f = vec2(fract(along), fract(p.y / 0.42));
     float seam = min(min(f.x * 0.8, f.y * 0.42), min((1.0 - f.x) * 0.8, (1.0 - f.y) * 0.42));
-    return s.stone * (0.82 + 0.22 * bUnit(id, 3u)) * (seam < 0.008 ? 0.6 : 1.0);
+    float mottle = 0.82 + 0.3 * bFbm(p * 2.5 + vec2(bUnit(id, 4u) * 30.0, 0.0));
+    return s.stone * (0.82 + 0.22 * bUnit(id, 3u)) * mottle
+        * mix(0.55, 1.0, smoothstep(0.004, 0.022, seam));
+}
+
+// The tilt of a stone block's face near its edges, as (along, up): blocks
+// are bevelled, so each catches the light a little differently at its rim.
+vec2 bStoneTilt(vec2 p) {
+    float row = floor(p.y / 0.42);
+    float along = p.x / 0.8 + 0.5 * mod(abs(row), 2.0);
+    vec2 f = vec2(fract(along) * 0.8, fract(p.y / 0.42) * 0.42);
+    vec2 size = vec2(0.8, 0.42);
+    vec2 toEdge = min(f, size - f);
+    vec2 tilt = vec2(0.0);
+    float bevel = 0.035;
+    if (toEdge.x < bevel) { tilt.x = (f.x < 0.4 ? -1.0 : 1.0) * (1.0 - toEdge.x / bevel); }
+    if (toEdge.y < bevel) { tilt.y = (f.y < 0.21 ? -1.0 : 1.0) * (1.0 - toEdge.y / bevel); }
+    return tilt * 0.6;
 }
 
 
@@ -574,9 +616,13 @@ BabelSurface gPictures(
 }
 
 vec3 bLit(
-    BabelSurface s, vec3 p, vec3 rd, vec3 lampA, vec3 lampB, vec3 lampColor
+    BabelSurface s, vec3 p, vec3 rd, vec3 lampA, vec3 lampB, vec3 lampColor, float ao
 ) {
-    vec3 color = s.albedo * vec3(0.055, 0.050, 0.060) + s.glow;
+    // Light that has bounced round the room: warmer from below, where the
+    // floor throws it back, and kept out of corners.
+    float bounce = 0.8 + 0.4 * clamp(-s.normal.y, 0.0, 1.0) + 0.2 * clamp(s.normal.y, 0.0, 1.0);
+    vec3 color = s.albedo * vec3(0.070, 0.060, 0.065) * bounce * ao + s.glow;
+    float direct = 0.35 + 0.65 * ao;
     for (int i = 0; i < 2; ++i) {
         vec3 toLamp = (i == 0 ? lampA : lampB) - p;
         float d2 = dot(toLamp, toLamp);
@@ -585,9 +631,23 @@ vec3 bLit(
         float diffuse = clamp(dot(s.normal, l), 0.0, 1.0);
         vec3 h = normalize(l - rd);
         float specular = pow(clamp(dot(s.normal, h), 0.0, 1.0), 36.0) * s.gloss;
-        color += lampColor * falloff * (s.albedo * diffuse + 0.25 * specular);
+        color += lampColor * falloff * direct * (s.albedo * diffuse + 0.25 * specular);
     }
     return color;
+}
+
+// Light scattered in the air near a lamp, seen along the part of a ray that
+// crosses this room.
+vec3 bHalo(vec3 ro, vec3 rd, float reach, vec3 lamp, vec3 lampColor) {
+    float t = clamp(dot(lamp - ro, rd), 0.0, reach);
+    vec3 q = ro + rd * t - lamp;
+    float d2 = dot(q, q);
+    return lampColor * (0.0035 / (d2 + 0.006));
+}
+
+float bOpenness(float d, float width) {
+    float x = clamp(d / width, 0.0, 1.0);
+    return x * (2.0 - x);
 }
 
 void main() {
@@ -661,6 +721,8 @@ void main() {
         vec3 lampB;
         vec3 lampColor = style.lamp;
         vec3 p;
+        float ao = 1.0;
+        vec3 halo = vec3(0.0);
 
         if (zone == 0) {
             lampA = vec3(0.0, D.H - 0.42, 0.66 * D.ap);
@@ -710,7 +772,16 @@ void main() {
 
             best = max(best, 0.0);
             p = ro + rd * best;
+            halo = bHalo(ro, rd, best, lampA, lampColor) + bHalo(ro, rd, best, lampB, lampColor);
+            color += tint * halo * exp(-0.045 * travelled);
             travelled += best;
+
+            // How far the point is from the walls, for the shade in corners.
+            float wallDistance = 1e9;
+            for (int i = 0; i < D.n; ++i) {
+                float a = wallTurn * float(i);
+                wallDistance = min(wallDistance, D.ap - dot(p.xz, vec2(cos(a), sin(a))));
+            }
 
             if (kind == 5) {
                 color += tint * style.lamp * 0.9 * exp(-0.045 * travelled);
@@ -739,9 +810,11 @@ void main() {
                     surface.albedo = bFloor(p.xz, style, seed);
                     surface.normal = vec3(0.0, 1.0, 0.0);
                     surface.gloss = 0.25;
+                    ao = bOpenness(wallDistance, 0.7) * (0.6 + 0.4 * bOpenness(-bShaftInside(p.xz, D), 0.3));
                 } else {
-                    surface.albedo = style.stone * 1.15;
+                    surface.albedo = style.stone * 1.15 * (0.9 + 0.2 * bFbm(p.xz * 2.0));
                     surface.normal = vec3(0.0, -1.0, 0.0);
+                    ao = bOpenness(wallDistance, 0.8);
                 }
             } else if (kind == 4) {
                 surface.albedo = style.metal;
@@ -752,6 +825,7 @@ void main() {
                 vec2 nn = vec2(cos(a), sin(a));
                 vec2 tt = vec2(-nn.y, nn.x);
                 float across = dot(p.xz, tt);
+                ao = bOpenness(p.y, 0.55) * bOpenness(D.H - p.y, 0.45) * bOpenness(D.hw - abs(across), 0.4);
                 if (bIsOpen(wall, D.n, D.open)) {
                     if (abs(across) < B_DOOR_HALF && p.y < D.doorH) {
                         ro = vec3(-B_VEST, p.y, across);
@@ -763,6 +837,11 @@ void main() {
                     bool frame = abs(across) < B_DOOR_HALF + 0.09 && p.y < D.doorH + 0.09;
                     surface.albedo = frame ? style.wood * 1.6 : bStone(vec2(across, p.y), style, seed);
                     surface.normal = vec3(-nn.x, 0.0, -nn.y);
+                    if (!frame) {
+                        vec2 tilt = bStoneTilt(vec2(across, p.y));
+                        surface.normal = normalize(surface.normal + vec3(tt.x, 0.0, tt.y) * tilt.x
+                                                   + vec3(0.0, tilt.y, 0.0));
+                    }
                 } else {
                     surface = gPictures(across, p.y, bShelvedIndex(wall, D.n, D.open), seed, style, D,
                                          here, vec3(nn.x, 0.0, nn.y), vec3(tt.x, 0.0, tt.y), P, off);
@@ -828,6 +907,11 @@ void main() {
             best = max(best, 0.0);
             p = ro + rd * best;
             travelled += best;
+            vec2 room = vec2(B_VEST - abs(p.x), B_VEST_HALF - abs(p.z));
+            float upDown = bOpenness(p.y, 0.5) * bOpenness(D.H - p.y, 0.4);
+            ao = (kind == 1 || kind == 2) ? upDown * bOpenness(room.y, 0.35)
+               : ((kind == 3 || kind == 4) ? upDown * bOpenness(room.x, 0.35)
+               : ((kind == 5 || kind == 6) ? bOpenness(min(room.x, room.y), 0.5) : 1.0));
             bool doorway = abs(p.z) < B_DOOR_HALF && p.y < D.doorH;
             bool frame = abs(p.z) < B_DOOR_HALF + 0.09 && p.y < D.doorH + 0.09;
 
@@ -917,7 +1001,7 @@ void main() {
             }
         }
 
-        vec3 lit = bLit(surface, p, rd, lampA, lampB, lampColor);
+        vec3 lit = bLit(surface, p, rd, lampA, lampB, lampColor, ao);
         color += tint * lit * exp(-0.045 * travelled);
         finished = true;
     }

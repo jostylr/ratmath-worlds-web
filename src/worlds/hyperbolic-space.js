@@ -549,7 +549,10 @@ export const world = {
   discreteValues: new Set([SHAPE, AROUND, GLIDE_X, GLIDE_X + 1, GLIDE_X + 2, SHOW_HOME]),
   cameraBacksAwayWhenMoving: false,
   step(state, probe, forward, right, up) {
-    walk([right, up, -forward], 0.07, state, probe);
+    // The size of the step is the length of the direction, so that held
+    // keys can walk in small, smooth paces.
+    const length = Math.hypot(right, up, forward);
+    walk([right, up, -forward], 0.07 * Math.min(length, 1.5), state, probe);
   },
   resetView(state) {
     storeFrame(Hyp3.frame(), state);

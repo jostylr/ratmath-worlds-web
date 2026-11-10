@@ -836,13 +836,49 @@ export function start(world) {
     w: [1, 0, 0], s: [-1, 0, 0], a: [0, -1, 0], d: [0, 1, 0], e: [0, 0, 1], q: [0, 0, -1],
     arrowup: [1, 0, 0], arrowdown: [-1, 0, 0], arrowleft: [0, -1, 0], arrowright: [0, 1, 0],
   };
+  // Keys held down walk smoothly, a little at every frame, starting gently,
+  // rather than in the jumps of the keyboard's own repeat. Q and E (a floor,
+  // in the library) are single steps.
+  const WALK_RATE = 15;
+  const heldKeys = new Map();
   window.addEventListener('keydown', event => {
     if (event.target.closest?.('input, textarea, select, dialog') || event.metaKey || event.ctrlKey || event.altKey) { return; }
-    const move = KEYS[event.key.toLowerCase()];
+    const key = event.key.toLowerCase();
+    const move = KEYS[key];
     if (!move || !world.step || tourIndex !== null) { return; }
     event.preventDefault();
-    step(...move);
+    if (move[2] !== 0) {
+      if (!event.repeat) { step(...move); }
+      return;
+    }
+    if (!heldKeys.has(key)) {
+      heldKeys.set(key, { move, since: performance.now() });
+      if (heldKeys.size === 1) { setInteraction('walking', true); }
+      world.step(state, probe, move[0] * 0.5, move[1] * 0.5, 0);
+      changed();
+    }
   });
+  const releaseKeys = key => {
+    if (key === undefined) { heldKeys.clear(); } else { heldKeys.delete(key); }
+    if (heldKeys.size === 0 && interactions.has('walking')) { setInteraction('walking', false); }
+  };
+  window.addEventListener('keyup', event => releaseKeys(event.key.toLowerCase()));
+  window.addEventListener('blur', () => releaseKeys());
+  function walkHeld(now, dt) {
+    if (heldKeys.size === 0 || !world.step || tourIndex !== null || dt <= 0) { return; }
+    let forward = 0;
+    let right = 0;
+    let since = now;
+    for (const held of heldKeys.values()) {
+      forward += held.move[0];
+      right += held.move[1];
+      since = Math.min(since, held.since);
+    }
+    const ramp = Math.min(1, 0.3 + 0.7 * (now - since) / 350);
+    const size = ramp * dt * WALK_RATE;
+    world.step(state, probe, clamp(forward, -1, 1) * size, clamp(right, -1, 1) * size, 0);
+    changed();
+  }
 
   // MARK: Animation
 
@@ -1123,6 +1159,9 @@ export function start(world) {
     const dt = previousFrame === null ? 0 : Math.min((now - previousFrame) / 1000, 0.1);
     previousFrame = now;
     stepAnimation(now);
+    walkHeld(now, dt);
+    // A world may walk on by itself, as after a tap in the Escher stairs.
+    if (world.advance && tourIndex === null && world.advance(state, dt)) { changed(); }
     if (advancePlayback(state, world.playback, dt)) { dirty = true; scheduleURL(); }
     // Worlds that move on their own are drawn continuously; the rest only
     // when something changes.
