@@ -175,6 +175,7 @@ gallery.html#=xy*4*s:0,0,9
 | `menger.html` | Menger sponge | `src/worlds/menger.js` | `Worlds/Menger/MengerWorld.swift` |
 | `hyperbolic-plane.html` | Hyperbolic plane | `src/worlds/hyperbolic-plane.js` | `Worlds/Hyperbolic/HyperbolicPlaneWorld.swift` |
 | `hyperbolic-space.html` | Hyperbolic room | `src/worlds/hyperbolic-space.js` | `Worlds/Hyperbolic/HyperbolicSpaceWorld.swift` |
+| `spherical-space.html` | Spherical space | `src/worlds/spherical-space.js` | `Worlds/Spherical/SphericalSpaceWorld.swift` |
 | `recursive-room.html` | Recursive room | `src/worlds/recursive-room.js` | `Worlds/Recursive/RecursiveRoomWorld.swift` |
 | `escher.html` | Escher stairs | `src/worlds/escher.js` | `Worlds/Escher/EscherWorld.swift` |
 | `four-d.html` | 4D slices | `src/worlds/four-d.js` | `Worlds/FourD/FourDWorld.swift` |
