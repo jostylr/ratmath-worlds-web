@@ -331,6 +331,12 @@ void main() {
   vec3 violet = palette == 1 ? vec3(0.10, 0.45, 0.85) : vec3(0.36, 0.14, 0.62);
   if (palette == 2) { gold = vec3(0.82, 0.80, 0.76); violet = vec3(0.30, 0.31, 0.36); }
   vec3 albedo = marker ? vec3(1.0) : (outside ? gold : violet);
+  // Knots: a rainbow along the string (1), or three colours carried in v (2).
+  if (!marker && uV0.w > 0.5) {
+    albedo = uV0.w > 1.5
+      ? (vUV.y < 0.25 ? vec3(0.85, 0.18, 0.15) : (vUV.y < 0.75 ? vec3(0.95, 0.75, 0.12) : vec3(0.15, 0.40, 0.90)))
+      : vec3(0.55) + vec3(0.42) * cos(6.2831853 * (vUV.x + 0.05 + vec3(0.0, 0.33, 0.67)));
+  }
 
   if (!marker && uV0.z > 0.5) {
     // Lines of latitude and longitude, to show how the surface is stretched.
