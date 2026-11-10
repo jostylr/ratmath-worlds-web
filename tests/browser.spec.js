@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-const worlds = ['mandelbulb', 'menger', 'hyperbolic-plane', 'hyperbolic-space', 'recursive-room', 'escher', 'babel', 'gallery', 'four-d', 'quaternion-julia', 'topology', 'eversion', 'attractors', 'mandelbrot', 'logistic', 'flatland', 'newton', 'henon', 'chaos-game', 'pendulum'];
+const worlds = ['mandelbulb', 'menger', 'hyperbolic-plane', 'hyperbolic-space', 'recursive-room', 'escher', 'babel', 'gallery', 'four-d', 'quaternion-julia', 'topology', 'eversion', 'attractors', 'mandelbrot', 'logistic', 'flatland', 'newton', 'henon', 'chaos-game', 'pendulum', 'penrose'];
 async function ready(page) {
   await expect(page.locator('#view')).toHaveAttribute('data-graphics', 'ready');
   await expect(page.locator('#controls .site-tools')).toBeAttached();
