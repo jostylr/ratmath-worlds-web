@@ -197,6 +197,7 @@ double-clicked to dive into. Their panels lead back to the shelf.
 | `chaos-game.html` | Chaos game | `src/worlds/chaos-game.js` | `Worlds/Flat/ChaosGameWorld.swift` |
 | `pendulum.html` | Magnetic pendulum | `src/worlds/pendulum.js` | `Worlds/Flat/PendulumWorld.swift` |
 | `penrose.html` | Penrose tilings | `src/worlds/penrose.js` | `Worlds/Flat/PenroseWorld.swift` |
+| `apollonian.html` | Apollonian gasket | `src/worlds/apollonian.js` | `Worlds/Flat/ApollonianWorld.swift` |
 | `flatland.html` | Flatland | `src/worlds/flatland.js` | `Worlds/Flat/FlatlandWorld.swift` |
 
 A flat world may also give the engine `flatCentre` (which values hold the centre of
