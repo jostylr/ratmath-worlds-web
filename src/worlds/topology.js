@@ -1,7 +1,7 @@
 // The topology world: surfaces with one side, and how twisting makes them.
 // This is Worlds/Topology/TopologyWorld.swift, without its explorer; the
 // tour's words are copied from it.
-import { newState, copyState, keyframe, slider, picker, toggle, readout, group } from './engine.js';
+import { newState, copyState, keyframe, slider, picker, toggle, readout, group, Format } from './engine.js';
 import { FRAGMENT } from './shaders/topology.js';
 
 // Indices into the state's values.
@@ -306,6 +306,75 @@ const tour = [
   },
 ];
 
+// MARK: Explorer
+
+/** What the explorer says about a flag carried round: TopologyWorld.report in the app. */
+function explorerReport(laps, across, state) {
+  if (!isSwept(state)) {
+    return {
+      headline: 'Choose the band or the figure-eight tube',
+      details: [`The ${SURFACE_NAMES[surfaceIndex(state)].toLowerCase()} is drawn from a single equation rather than swept round a ring, so there is no lap to follow. The flag works on the first two surfaces.`],
+      tableTitle: '', columns: [], rows: [], markers: [],
+    };
+  }
+  const n = twistCount(state);
+  const oneSided = n % 2 !== 0;
+  const colours = [[1, 1, 1], [1.0, 0.55, 0.1], [0.25, 0.9, 1.0]];
+  const v2 = v => Format.vector(v, 2);
+  const rows = [];
+  const markers = [];
+  for (let lap = 0; lap <= 2; lap += 1) {
+    const total = laps + lap;
+    const point = surfacePoint(total, across, state);
+    const strip = frame(total * 2 * Math.PI, n);
+    const phi = total * 360;
+    rows.push({
+      id: lap,
+      cells: [String(lap), v2(point.position), v2(point.normal)],
+      workedTitle: lap === 0 ? 'Where the flag stands, worked' : `After ${lap} lap${lap === 1 ? '' : 's'}, worked`,
+      worked: [
+        ['angle round, φ', `${phi.toFixed(1)}°`],
+        ['turn = half-twists × φ ⁄ 2', `${(n * phi / 2).toFixed(1)}°`],
+        ['centre of strip', v2(strip.centre)],
+        ['across direction', v2(strip.across)],
+        ['through direction', v2(strip.normal)],
+        ['flag stands at', v2(point.position)],
+        ['flag points', v2(point.normal)],
+      ],
+      note: `At angle φ round the ring, the strip has turned by half-twists × φ ⁄ 2. Its across and through directions are the outward and upward directions turned by that much. One more lap adds 360° to φ and so ${n} × 180° to the turn: ${oneSided ? 'an odd number of half-turns, which reverses both directions.' : 'a whole number of full turns, which changes nothing.'}`,
+    });
+    markers.push(...flag(total, across, state, colours[lap]));
+  }
+  const first = surfacePoint(laps, across, state).position;
+  const second = surfacePoint(laps + 1, across, state).position;
+  const samePlace = Math.hypot(first[0] - second[0], first[1] - second[1], first[2] - second[2]) < 1e-6;
+  return {
+    headline: oneSided ? 'One side: the flag comes back reversed' : 'Two sides: the flag comes back unchanged',
+    details: [
+      oneSided
+        ? (samePlace
+          ? 'After one lap the flag is at the same spot, pointing the opposite way. There is no second side for it to have crossed to: it never left the surface or passed an edge.'
+          : 'After one lap the flag is across the centre line from where it started, pointing the opposite way. Put it on the centre line (across = 0) to bring it back to the very same spot.')
+        : 'After one lap the flag is exactly where it started, pointing the same way. The other face can only be reached by crossing an edge.',
+      'After two laps it is always back as it began.',
+    ],
+    tableTitle: 'The flag after each lap', columns: ['lap', 'stands at', 'points'], rows, markers,
+  };
+}
+
+const explorer = {
+  title: 'Lap explorer',
+  subtitle: 'Carry a flag round and see how it comes back',
+  buttonTitle: 'Lap explorer',
+  blurb: 'The explorer plants a flag on the band or the tube, works out where it stands and which way it points, and does the same one and two laps later.',
+  pointTitle: 'Flag: laps round, and place across',
+  coordinates: [{ label: 'laps', range: [0, 1] }, { label: 'across', range: [-1, 1] }],
+  moveHint: 'Left and right arrows carry the flag round; up and down move it across. The white flag is where you put it, the orange one is the same flag one lap later, and the cyan one two laps later.',
+  initialProbe: () => [0.12, 0, 0, 0],
+  report: (probe, state) => explorerReport(probe[0], probe[1], state),
+  move: (probe, right, up) => [Math.min(Math.max(probe[0] + right * 0.01, 0), 1), Math.min(Math.max(probe[1] + up * 0.05, -1), 1), 0, 0],
+};
+
 export const world = {
   id: 'topology',
   title: 'One-sided surfaces',
@@ -363,6 +432,7 @@ export const world = {
     on the band or the tube to fly to it. Stripes run along the surface
     and make the twist easier to follow.`,
   tour,
+  explorer,
   distance,
   shaderValues(state) {
     const values = new Array(32).fill(0);
