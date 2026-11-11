@@ -168,6 +168,26 @@ dialog#find::backdrop { background: rgba(0, 0, 0, 0.4); }
 #labelLines { display: grid; gap: 6px; font-size: 0.8rem; color: var(--secondary); }
 #labelLines p { margin: 0; }
 
+/* The close-up of one picture: what it is, and its scheme's numbers. */
+#top #studio { position: static; width: 100%; max-width: 380px; padding: 12px 14px; border-radius: 14px; gap: 6px;
+  max-height: calc(100vh - 2 * var(--gap) - 20px); overflow-y: auto; }
+#studio header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+#studioBody { display: grid; gap: 8px; }
+#studioBody[hidden] { display: none; }
+#studioLines { display: grid; gap: 6px; font-size: 0.8rem; color: var(--secondary); }
+#studioLines p, #studio > div > p { margin: 0; }
+#studioKnobs { display: grid; gap: 8px; border-top: 1px solid var(--line); padding-top: 8px; }
+#studioKnobs label.row { flex-wrap: wrap; }
+#studioKnobs label.row input[type="range"] { flex-basis: 100%; }
+#studioKnobs .segmented { grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); }
+#studio .line { display: flex; align-items: center; }
+#studioFormulaRow { gap: 8px; }
+#studioFormula { flex: 1; min-width: 0; font: 0.92rem ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: inherit; background: none; border: 0; outline: none; }
+.studioFoot { gap: 4px; align-items: center; }
+.studioFoot .spacer { flex: 1; }
+button.plain.small { font-size: 0.8rem; }
+
 /* Reader mode keeps every character, with readable type and a scrolling page. */
 #reader.reading .volume { width: min(100%, 760px); height: min(100%, 900px); overflow: hidden; }
 #reader.reading #cover { min-height: 0; flex: 1; overflow-y: auto; overscroll-behavior: contain; }

@@ -58,6 +58,7 @@ function changed() {
   dirty = true;
   refreshBar();
   refreshLabel();
+  refreshStudio();
   refreshControls();
   scheduleURL();
 }
@@ -115,7 +116,7 @@ function setFailure(message) {
 }
 
 function refreshBar() {
-  $('bar').hidden = tourIndex !== null;
+  $('bar').hidden = tourIndex !== null || Boolean(scene.studio);
   if (document.activeElement !== addressInput) { addressInput.value = G.addressText(scene); }
   $('formulaRow').hidden = G.kindOfFloor(scene.place.room[2]) !== G.FORMULA;
   $('formulaStatus').hidden = $('formulaRow').hidden;
@@ -199,7 +200,7 @@ formulaInput.addEventListener('blur', refreshBar);
 
 function refreshLabel() {
   const caption = G.caption(scene.place);
-  $('label').hidden = !caption;
+  $('label').hidden = !caption || Boolean(scene.studio);
   if (!caption) { return; }
   $('labelTitle').textContent = caption.title;
   $('labelLines').replaceChildren(...caption.lines.map(line => {
@@ -208,7 +209,10 @@ function refreshLabel() {
     return p;
   }));
   $('stepBack').hidden = tourIndex !== null;
+  $('explore').hidden = tourIndex !== null;
 }
+
+$('explore').addEventListener('click', openStudio);
 
 $('stepBack').addEventListener('click', () => {
   animation = null;
@@ -218,18 +222,169 @@ $('stepBack').addEventListener('click', () => {
   changed();
 });
 
+// MARK: The close-up of one picture
+
+function openStudio() {
+  if (tourIndex !== null) { return; }
+  animation = null;
+  stroll = null;
+  held.clear();
+  G.openStudio(scene);
+  studioKind = null;
+  changed();
+}
+
+function closeStudio() {
+  if (!scene.studio) { return; }
+  scene.studio = null;
+  G.standSensibly(scene);
+  changed();
+  canvas.focus();
+}
+
+/** The scheme whose knobs are built, so they are built again only for another. */
+let studioKind = null;
+
+function buildKnobs(kind) {
+  studioKind = kind;
+  $('studioKnobs').replaceChildren(...G.knobs(kind).map((knob, i) => {
+    if (knob.options) {
+      const group = document.createElement('div');
+      group.className = 'segmented';
+      group.setAttribute('role', 'group');
+      group.setAttribute('aria-label', knob.title);
+      knob.options.forEach((option, value) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = option;
+        button.dataset.knob = String(i);
+        button.dataset.option = String(value);
+        group.append(button);
+      });
+      return group;
+    }
+    const label = document.createElement('label');
+    label.className = 'row';
+    label.innerHTML = `<span class="title"></span><span class="value"></span>
+      <input type="range" min="${knob.min}" max="${knob.max}" step="${knob.whole ? 1 : 'any'}">`;
+    label.querySelector('.title').textContent = knob.title;
+    label.querySelector('input').dataset.knob = String(i);
+    return label;
+  }));
+}
+
+function refreshStudio() {
+  const shown = scene.studio && G.pictureOf(scene.place);
+  $('studio').hidden = !shown;
+  if (!shown) { return; }
+  const numbers = scene.studio.numbers;
+  const caption = G.caption(scene.place, numbers);
+  $('studioTitle').textContent = caption.title;
+  $('studioLines').replaceChildren(...caption.lines.map(line => {
+    const p = document.createElement('p');
+    p.textContent = line;
+    return p;
+  }));
+  if (studioKind !== shown.kind) { buildKnobs(shown.kind); }
+  const knobs = G.knobs(shown.kind);
+  for (const input of $('studioKnobs').querySelectorAll('input[data-knob]')) {
+    const i = Number(input.dataset.knob);
+    if (document.activeElement !== input) { input.value = String(numbers[i]); }
+    input.parentElement.querySelector('.value').textContent = knobs[i].display(numbers[i]);
+  }
+  for (const button of $('studioKnobs').querySelectorAll('button[data-knob]')) {
+    const selected = Math.round(numbers[Number(button.dataset.knob)]) === Number(button.dataset.option);
+    button.classList.toggle('selected', selected);
+    button.setAttribute('aria-pressed', String(selected));
+  }
+  $('studioFormulaRow').hidden = shown.kind !== G.FORMULA;
+  if (document.activeElement !== $('studioFormula')) { $('studioFormula').value = G.formulaText(scene.place.design); }
+  $('studioZoom').textContent = `${(1 / scene.studio.scale).toFixed(1)}×`;
+}
+
+$('studioKnobs').addEventListener('input', event => {
+  const i = event.target.dataset.knob;
+  if (i === undefined || !scene.studio) { return; }
+  const knob = G.knobs(G.pictureOf(scene.place).kind)[Number(i)];
+  const value = Number(event.target.value);
+  scene.studio.numbers[Number(i)] = knob.whole ? Math.round(value) : value;
+  changed();
+});
+$('studioKnobs').addEventListener('click', event => {
+  const button = event.target.closest('button[data-knob]');
+  if (!button || !scene.studio) { return; }
+  scene.studio.numbers[Number(button.dataset.knob)] = Number(button.dataset.option);
+  changed();
+});
+$('studioFormula').addEventListener('input', () => {
+  const analysis = G.analyzeFormula($('studioFormula').value);
+  $('studioFormula').setAttribute('aria-invalid', String(!analysis.valid));
+  if (!analysis.valid) { return; }
+  scene.place.design = G.normalized({ ...scene.place.design, program: G.programOf($('studioFormula').value) });
+  changed();
+});
+$('studioClose').addEventListener('click', closeStudio);
+$('studioRestore').addEventListener('click', () => {
+  const shown = G.pictureOf(scene.place);
+  if (!shown || !scene.studio) { return; }
+  scene.studio.numbers = G.defaultNumbers(shown.kind, shown.hash);
+  changed();
+});
+$('studioFit').addEventListener('click', () => {
+  if (!scene.studio) { return; }
+  scene.studio.centre = [0, 0];
+  scene.studio.scale = 1;
+  changed();
+});
+$('studioFold').addEventListener('click', () => {
+  const body = $('studioBody');
+  body.hidden = !body.hidden;
+  $('studioFold').textContent = body.hidden ? '⌄' : '⌃';
+  $('studioFold').setAttribute('aria-expanded', String(!body.hidden));
+  $('studioFold').setAttribute('aria-label', body.hidden ? 'Show the numbers' : 'Hide the numbers');
+});
+
 // MARK: Looking and walking
 
 /** The walk a click has set going: { goal, climb }. */
 let stroll = null;
 let drag = null;
 
+/** A point of the page as a point of the view: the shorter side spans −1 to 1, y up. */
+function viewPoint(event) {
+  const box = canvas.getBoundingClientRect();
+  const aspect = box.width / box.height;
+  const fit = Math.min(aspect, 1);
+  return [((((event.clientX - box.left) / box.width) * 2 - 1) * aspect) / fit, (1 - ((event.clientY - box.top) / box.height) * 2) / fit];
+}
+
+// Fingers on the close-up, for pinching: pointerId → [x, y].
+const fingers = new Map();
+let pinch = null;
+
 canvas.addEventListener('pointerdown', event => {
+  fingers.set(event.pointerId, [event.clientX, event.clientY]);
+  if (fingers.size === 2 && scene.studio) {
+    const [a, b] = [...fingers.values()];
+    pinch = Math.hypot(a[0] - b[0], a[1] - b[1]);
+    drag = null;
+    return;
+  }
   drag = { x: event.clientX, y: event.clientY, moved: 0 };
   try { canvas.setPointerCapture(event.pointerId); } catch { /* a pointer that cannot be captured still drags */ }
   canvas.focus();
 });
 canvas.addEventListener('pointermove', event => {
+  if (fingers.has(event.pointerId)) { fingers.set(event.pointerId, [event.clientX, event.clientY]); }
+  if (pinch !== null && fingers.size === 2 && scene.studio) {
+    const [a, b] = [...fingers.values()];
+    const apart = Math.hypot(a[0] - b[0], a[1] - b[1]);
+    const middle = viewPoint({ clientX: (a[0] + b[0]) / 2, clientY: (a[1] + b[1]) / 2 });
+    if (pinch > 0 && apart > 0) { G.zoomStudio(scene, apart / pinch, ...middle); }
+    pinch = apart;
+    changed();
+    return;
+  }
   if (!drag) { return; }
   const unit = Math.max(Math.min(canvas.clientWidth, canvas.clientHeight) / 2, 1);
   const dx = (event.clientX - drag.x) / unit;
@@ -239,14 +394,25 @@ canvas.addEventListener('pointermove', event => {
   drag.y = event.clientY;
   if (drag.moved < 4) { return; }
   animation = null;
+  if (scene.studio) {
+    G.panStudio(scene, dx, dy);
+    changed();
+    return;
+  }
   scene.yaw += dx * 1.7;
   scene.pitch = clamp(scene.pitch + dy * 1.7, -1.45, 1.45);
   changed();
 });
+function endFinger(event) {
+  fingers.delete(event.pointerId);
+  if (fingers.size < 2) { pinch = null; }
+}
+
 canvas.addEventListener('pointerup', event => {
   const wasClick = drag && drag.moved < 4;
   drag = null;
-  if (!wasClick || tourIndex !== null) { return; }
+  endFinger(event);
+  if (!wasClick || tourIndex !== null || scene.studio) { return; }
   const box = canvas.getBoundingClientRect();
   const aspect = box.width / box.height;
   const fit = Math.min(aspect, 1);
@@ -257,6 +423,11 @@ canvas.addEventListener('pointerup', event => {
   if (!hit) { return; }
   animation = null;
   if (hit.picture) {
+    if (hit.picture.wall === scene.place.wall && hit.picture.picture === scene.place.picture) {
+      // A second click on the picture opens its close-up.
+      openStudio();
+      return;
+    }
     // A click on a picture stands the viewer in front of it.
     Object.assign(scene.place, hit.picture);
     G.standSensibly(scene);
@@ -265,9 +436,22 @@ canvas.addEventListener('pointerup', event => {
     stroll = { goal: hit.floor ?? null, climb: hit.climb ?? 0 };
   }
 });
-canvas.addEventListener('pointercancel', () => { drag = null; });
+canvas.addEventListener('pointercancel', event => { drag = null; endFinger(event); });
+canvas.addEventListener('dblclick', event => {
+  if (!scene.studio || tourIndex !== null) { return; }
+  // The spot comes to the middle, three times closer.
+  const spot = G.studioPoint(scene, ...viewPoint(event));
+  scene.studio.centre = spot.map(c => clamp(c, -4, 4));
+  G.zoomStudio(scene, 3);
+  changed();
+});
 canvas.addEventListener('wheel', event => {
   event.preventDefault();
+  if (scene.studio) {
+    G.zoomStudio(scene, Math.exp(-event.deltaY * 0.0025), ...viewPoint(event));
+    changed();
+    return;
+  }
   scene.zoom = clamp(scene.zoom * Math.exp(event.deltaY * 0.0015), ...ZOOM_RANGE);
   changed();
 }, { passive: false });
@@ -280,14 +464,30 @@ const held = new Set();
 
 function climb(up) {
   animation = null;
+  if (scene.studio) {
+    G.zoomStudio(scene, up > 0 ? 1.25 : 0.8);
+    changed();
+    return;
+  }
   G.walk(scene, 0, 0, up);
   changed();
 }
 
 window.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && scene.studio && tourIndex === null && !event.target.closest('dialog')) {
+    closeStudio();
+    return;
+  }
   if (event.target.closest('input, textarea, select, dialog') || event.metaKey || event.ctrlKey || event.altKey) { return; }
   if (tourIndex !== null) { return; }
   const key = event.key.toLowerCase();
+  if (scene.studio) {
+    // In the close-up the keys pan, E and Q zoom, and Esc goes back.
+    if (key === 'escape') { closeStudio(); }
+    else if (key in MOVES) { G.panStudio(scene, MOVES[key][1] * 0.1, -MOVES[key][0] * 0.1); changed(); event.preventDefault(); }
+    else if (key === 'e' || key === 'q') { G.zoomStudio(scene, key === 'e' ? 1.25 : 0.8); changed(); }
+    return;
+  }
   if (key in MOVES) {
     held.add(key);
     event.preventDefault();
@@ -324,7 +524,7 @@ function stepWalk(now) {
   const dt = Math.min(elapsed, 0.05);
   lastFrame = now;
   stepStroll(Math.min(elapsed, 0.5));
-  if (held.size === 0 || tourIndex !== null) { return; }
+  if (held.size === 0 || tourIndex !== null || scene.studio) { return; }
   let forward = 0;
   let right = 0;
   for (const key of held) {
@@ -343,6 +543,7 @@ function stepWalk(now) {
 const NOTES = {
   Walk: [
     'The arrows, or W A S D, walk you about. Drag to look round. Click the floor to walk to that spot, through a doorway if need be, and a picture to stand in front of it and read what it is.',
+    'Click the picture again, or ⊕ on its label, to see it close up: scroll or pinch to zoom, drag to move it, double-click to dive toward a spot. The numbers its scheme drew from the picture’s hash become sliders, a Julia set’s c, an automaton’s rule, a rose’s petals, to change as you watch.',
     'Each floor has its own scheme. Up and down, or E and Q, change floor; so does clicking the spiral stair in a vestibule, or clicking up or down the shaft. The floors run mixed, plasma, Truchet tiles, Mondrian, automaton, Julia set, rose, bit games, Voronoi, formula, and then round again.',
     'The address at the top is design, then column, row and floor, then wall and picture; type one to go there. The address of this page always holds the same thing, with where you stand.',
   ],
@@ -355,7 +556,7 @@ const NOTES = {
     'A formula is read left to right, one character a step, and keeps a stack of numbers: x y are the point, from −1 to 1; r a its distance and angle; t u two numbers that change from picture to picture; 0 to 9 are themselves. + − * / join the top two numbers. s c are sine and cosine of π times the top; q square root, b size, f fraction, o whole part, z minus, i one over, e exp, h 1 if positive. l g take the lesser and greater, p a power, m a remainder, n smooth noise, d copies the top, w swaps. At most 52 steps.',
     'One number left at the end picks a colour from a wheel; three are red, green and blue. So xy*4*s is sin(4π·x·y).',
   ],
-  View: ['Zoom narrows the view like a longer lens; it does not move you. Reset takes you back to the first room.'],
+  View: ['Zoom narrows the view like a longer lens; it does not move you. Reset takes you back to the first room. In a picture’s close-up, zoom goes up to 5,000 times and Reset shows the whole picture again.'],
 };
 
 const SLIDERS = [
@@ -408,7 +609,10 @@ function buildControls() {
   });
   panel.addEventListener('input', event => {
     const field = event.target.dataset.field;
-    if (event.target.id === 'zoom') {
+    if (event.target.id === 'zoom' && scene.studio) {
+      scene.studio.scale = clamp(Math.exp(-Number(event.target.value)), ...G.STUDIO_ZOOM);
+      changed();
+    } else if (event.target.id === 'zoom') {
       scene.zoom = clamp(Math.exp(-Number(event.target.value)), ...ZOOM_RANGE);
       changed();
     } else if (field) {
@@ -432,7 +636,8 @@ function buildControls() {
     button.addEventListener('click', event => {
       if (event.detail !== 0) { return; } // Keyboard and assistive technology activation.
       animation = null;
-      G.walk(scene, MOVES[key][0] * 0.25, MOVES[key][1] * 0.25, 0);
+      if (scene.studio) { G.panStudio(scene, MOVES[key][1] * 0.1, -MOVES[key][0] * 0.1); }
+      else { G.walk(scene, MOVES[key][0] * 0.25, MOVES[key][1] * 0.25, 0); }
       changed();
     });
     button.addEventListener('pointerdown', () => held.add(key));
@@ -442,6 +647,12 @@ function buildControls() {
   }
   $('tourStart').addEventListener('click', () => showTourStep(0));
   $('reset').addEventListener('click', () => {
+    if (scene.studio) {
+      scene.studio.centre = [0, 0];
+      scene.studio.scale = 1;
+      changed();
+      return;
+    }
     const place = G.newPlace(scene.place.design);
     arrive(G.sceneAt(place));
   });
@@ -460,8 +671,11 @@ function refreshControls() {
   $('floorKind').textContent = G.TITLES[G.kindOfFloor(place.room[2])];
   $('perRoom').textContent = String(d.walls * G.picturesPerWall(d));
   $('formulaNow').textContent = G.formulaText(d);
-  if (document.activeElement !== $('zoom')) { $('zoom').value = -Math.log(scene.zoom); }
-  $('zoomValue').textContent = (1 / scene.zoom).toFixed(1) + '×';
+  const zoom = scene.studio ? scene.studio.scale : scene.zoom;
+  $('zoom').min = String(-Math.log(scene.studio ? G.STUDIO_ZOOM[1] : ZOOM_RANGE[1]));
+  $('zoom').max = String(-Math.log(scene.studio ? G.STUDIO_ZOOM[0] : ZOOM_RANGE[0]));
+  if (document.activeElement !== $('zoom')) { $('zoom').value = -Math.log(zoom); }
+  $('zoomValue').textContent = (1 / zoom).toFixed(1) + '×';
 }
 
 $('controlsToggle').addEventListener('click', () => {
@@ -475,6 +689,7 @@ $('controlsToggle').addEventListener('click', () => {
 
 function showTourStep(index) {
   tourIndex = index;
+  scene.studio = null;
   held.clear();
   stroll = null;
   const step = TOUR[index];
@@ -519,6 +734,8 @@ mountTools($('controls'), { link: () => sceneURL('#' + G.addressText(scene, true
 const query = new URLSearchParams(location.search);
 const startHash = decodeHash(location.hash);
 if (startHash.length > 1) { go(startHash); }
+// ?studio opens the chosen picture's close-up, for checks.
+if (query.has('studio') && G.hasPicture(scene.place)) { openStudio(); }
 if (location.hash.length <= 1 && query.has('tourStep')) {
   const index = Number(query.get('tourStep'));
   if (Number.isInteger(index) && index >= 0 && index < TOUR.length) { showTourStep(index); }

@@ -257,7 +257,7 @@ export function parseAddress(input, base) {
     place.picture = n;
   }
 
-  const scene = { place, x: base.x, z: base.z, yaw: base.yaw, pitch: base.pitch, zoom: base.zoom };
+  const scene = { place, x: base.x, z: base.z, yaw: base.yaw, pitch: base.pitch, zoom: base.zoom, studio: null };
   if (view) {
     [scene.x, scene.z] = view;
     scene.yaw = (view[2] * Math.PI) / 180;
@@ -306,7 +306,7 @@ export function standSensibly(scene) {
 }
 
 export function sceneAt(place) {
-  const scene = { place, x: 0, z: 0, yaw: 0, pitch: 0, zoom: 1 };
+  const scene = { place, x: 0, z: 0, yaw: 0, pitch: 0, zoom: 1, studio: null };
   standSensibly(scene);
   return scene;
 }
@@ -421,73 +421,177 @@ export function shaderValues(scene) {
   d.program.forEach((code, i) => {
     values[FORMULA_SLOTS[Math.floor(i / 4)]] += code * 64 ** (i % 4);
   });
+  const shown = scene.studio && pictureOf(p);
+  if (shown) {
+    // The close-up, as gStudio in Gallery.metal reads it.
+    const { centre, scale, numbers: q } = scene.studio;
+    values.set([centre[0], centre[1], scale, shown.shape[0], shown.shape[1], shown.kind,
+      shown.hash & 0xffff, shown.hash >>> 16, q[0], q[1], 2], 0);
+    values.set([q[2], q[3], q[4], q[5]], 12);
+  }
   return values;
+}
+
+// MARK: The close-up of one picture
+//
+// scene.studio is null in the rooms, or { centre: [x, y], scale, numbers }
+// while the chosen picture is shown flat, filling the view: centre is the
+// point of the picture in the middle, scale how much of it the view holds
+// (1 is all of it), and numbers the six its scheme reads, as GalleryStudio.swift.
+
+export const STUDIO_ZOOM = [0.0002, 4];
+export const STUDIO_REACH = 1.08;
+const OPERATIONS = ['XOR', 'AND', 'OR', '×'];
+const AUTOMATON_RULES = [30, 90, 110, 54, 60, 73, 105, 150, 126, 22, 45, 18, 182, 122, 146, 62];
+
+const plain = (value, digits = 2) => value.toFixed(digits);
+const knob = (title, min, max, extra = {}) => ({ title, min, max, whole: false, options: null, display: v => plain(v), ...extra });
+const whole = (title, min, max) => knob(title, min, max, { whole: true, display: v => String(Math.round(v)) });
+const percent = v => `${Math.round(v * 100)}%`;
+const COLOUR = knob('Colour', 0, 1);
+const RESHUFFLE = whole('Reshuffle', 0, 99);
+
+/** The knobs of a scheme, in the order of its numbers. */
+export function knobs(kind) {
+  switch (kind) {
+    case 1: return [knob('Angle', 0, 2 * Math.PI, { display: v => `${Math.round((v * 180) / Math.PI)}°` }), knob('Scale', 0.5, 10), whole('Folds', 0, 10), COLOUR];
+    case 2: return [whole('Tiles across', 1, 40), knob('Line width', 0.02, 0.45), RESHUFFLE, COLOUR];
+    case 3: return [whole('Cuts', 1, 12), knob('Chance to stop', 0, 0.9, { display: percent }), knob('Painted', 0, 1, { display: percent }), RESHUFFLE];
+    case 4: return [whole('Rule', 0, 255), knob('Start', 0, 1, { whole: true, options: ['One cell', 'A scatter'] }), RESHUFFLE, COLOUR];
+    case 5: return [knob('Re c', -1.6, 0.6, { display: v => plain(v, 4) }), knob('Im c', -1.1, 1.1, { display: v => plain(v, 4) }), whole('Steps', 16, 2000), COLOUR];
+    case 6: return [whole('Petals', 1, 24), whole('Bands', 1, 24), COLOUR];
+    case 7: return [whole('Grid', 2, 512), knob('Operation', 0, 3, { whole: true, options: OPERATIONS }), whole('Modulus', 2, 99), COLOUR];
+    case 8: return [whole('Points across', 1, 30), knob('Edge width', 0, 0.4), RESHUFFLE, COLOUR];
+    default: return [knob('t', -2, 2), knob('u', -2, 2), COLOUR];
+  }
+}
+
+/** The numbers a picture takes from its hash, as gDefaults works them out. */
+export function defaultNumbers(kind, h) {
+  const u = k => unit(h, k);
+  const q = [0, 0, 0, 0, 0, 0];
+  const colour = u(3);
+  if (kind === 1) { q[0] = u(1) * 2 * Math.PI; q[1] = 1.5 + 2.5 * u(2); q[2] = 3; q[3] = colour; }
+  else if (kind === 2) { q[0] = 3 + Math.floor(u(1) * 8); q[1] = 0.08 + 0.12 * u(2); q[3] = colour; }
+  else if (kind === 3) { q[0] = 5; q[1] = 0.25; q[2] = 0.38; }
+  else if (kind === 4) { q[0] = AUTOMATON_RULES[Math.floor(u(1) * 15.999)]; q[1] = u(2) > 0.5 ? 0 : 1; q[3] = colour; }
+  else if (kind === 5) {
+    const angle = u(1) * 2 * Math.PI;
+    q[0] = 0.7885 * Math.cos(angle); q[1] = 0.7885 * Math.sin(angle); q[2] = 64; q[3] = colour;
+  } else if (kind === 6) { q[0] = 2 + Math.floor(u(1) * 7); q[1] = 2 + Math.floor(u(2) * 6); q[2] = colour; }
+  else if (kind === 7) { q[0] = 32 << Math.floor(u(1) * 2.999); q[1] = Math.floor(u(2) * 3.999); q[2] = 3 + Math.floor(u(4) * 28.999); q[3] = colour; }
+  else if (kind === 8) { q[0] = 3 + Math.floor(u(1) * 6); q[1] = 0.05; q[3] = colour; }
+  else { q[0] = u(1); q[1] = u(2); }
+  return q;
+}
+
+/** The chosen picture's scheme (a mixed floor's choice made), hash and shape, or null. */
+export function pictureOf(place) {
+  if (!hasPicture(place)) { return null; }
+  const f = frame(place, place.wall - 1, place.picture - 1);
+  const floorKind = kindOfFloor(place.room[2]);
+  const kind = floorKind === 0 ? 1 + Math.floor(unit(f.hash, 50) * 7.999) : floorKind;
+  const largest = Math.max(f.halfWidth, f.halfHeight);
+  return { kind, hash: f.hash, shape: [f.halfWidth / largest, f.halfHeight / largest] };
+}
+
+export function openStudio(scene) {
+  const shown = pictureOf(scene.place);
+  if (!shown) { return; }
+  scene.studio = { centre: [0, 0], scale: 1, numbers: defaultNumbers(shown.kind, shown.hash) };
+}
+
+/** The point of the picture under a point of the view. */
+export function studioPoint(scene, u, v) {
+  const shown = pictureOf(scene.place);
+  const s = scene.studio;
+  const reach = s.scale * STUDIO_REACH;
+  return [s.centre[0] + (u * reach) / shown.shape[0], s.centre[1] + (v * reach) / shown.shape[1]];
+}
+
+/** Moves the picture by a drag, in fractions of the shorter half-side of the view. */
+export function panStudio(scene, dx, dy) {
+  const shown = pictureOf(scene.place);
+  const s = scene.studio;
+  const reach = s.scale * STUDIO_REACH;
+  s.centre = [clamp(s.centre[0] - (dx * reach) / shown.shape[0], -4, 4), clamp(s.centre[1] + (dy * reach) / shown.shape[1], -4, 4)];
+}
+
+/** Zooms by a factor, keeping the point under (u, v) of the view in place. */
+export function zoomStudio(scene, factor, u = 0, v = 0) {
+  const s = scene.studio;
+  const before = studioPoint(scene, u, v);
+  s.scale = clamp(s.scale / factor, ...STUDIO_ZOOM);
+  const after = studioPoint(scene, u, v);
+  s.centre = [clamp(s.centre[0] + before[0] - after[0], -4, 4), clamp(s.centre[1] + before[1] - after[1], -4, 4)];
 }
 
 // MARK: What a picture is
 
 /** The label of the chosen picture: { title, lines }, or null. */
-export function caption(place) {
-  if (!hasPicture(place)) { return null; }
-  const h = frame(place, place.wall - 1, place.picture - 1).hash;
-  const u = k => unit(h, k);
-  const floorKind = kindOfFloor(place.room[2]);
-  const kind = floorKind === 0 ? 1 + Math.floor(u(50) * 7.999) : floorKind;
+export function caption(place, numbers = null) {
+  const shown = pictureOf(place);
+  if (!shown) { return null; }
+  const { kind, hash: h } = shown;
+  const q = numbers ?? defaultNumbers(kind, h);
+  const n = i => Math.round(q[i]);
   const fixed = (value, digits) => value.toFixed(digits);
   let lines;
   if (kind === 1) {
+    const folds = n(2);
     lines = [
-      'Two sine waves added together, on a plane that three other waves have first bent out of shape.',
+      folds === 0 ? 'Two sine waves added together.'
+        : `Two sine waves added together, on a plane that ${folds === 3 ? 'three' : folds} other wave${folds === 1 ? ' has' : 's have'} first bent out of shape.`,
       'The bending angle and the scale come from this picture’s number.',
     ];
   } else if (kind === 2) {
-    const n = 3 + Math.floor(u(1) * 8);
+    const tiles = Math.max(n(0), 1);
     lines = [
-      `${n} × ${n} square tiles. Each carries two quarter circles joining the middles of its sides, and is laid one of two ways round.`,
-      `Every choice is a coin toss, yet the arcs always join into loops and long wandering paths. There are 2^${n * n} ways to lay this floor.`,
+      `${tiles} × ${tiles} square tiles. Each carries two quarter circles joining the middles of its sides, and is laid one of two ways round.`,
+      `Every choice is a coin toss, yet the arcs always join into loops and long wandering paths. There are 2^${tiles * tiles} ways to lay this floor.`,
     ];
   } else if (kind === 3) {
+    const cuts = n(0);
     lines = [
-      'A rectangle is cut in two, and each piece cut again, up to five times. Where and which way come from the picture’s number.',
-      'About one piece in three is painted red, blue or yellow.',
+      `A rectangle is cut in two, and each piece cut again, up to ${cuts === 5 ? 'five' : cuts} time${cuts === 1 ? '' : 's'}. Where and which way come from the picture’s number.`,
+      Math.abs(q[2] - 0.38) < 0.005 ? 'About one piece in three is painted red, blue or yellow.'
+        : `About ${Math.round(q[2] * 100)}% of the pieces are painted red, blue or yellow.`,
     ];
   } else if (kind === 4) {
-    const rule = [30, 90, 110, 54, 60, 73, 105, 150, 126, 22, 45, 18, 182, 122, 146, 62][Math.floor(u(1) * 15.999)];
+    const rule = clamp(n(0), 0, 255);
     lines = [
       `Rule ${rule}. The top row is the start. Each cell of the next row is decided by the three cells above it, and the rule’s number in binary, ${rule.toString(2).padStart(8, '0')}, lists the eight answers.`,
-      u(2) > 0.5 ? 'It starts from a single live cell.' : 'It starts from a scatter of live cells.',
+      n(1) === 0 ? 'It starts from a single live cell.' : 'It starts from a scatter of live cells.',
     ];
   } else if (kind === 5) {
-    const angle = u(1) * 2 * Math.PI;
-    const re = 0.7885 * Math.cos(angle);
-    const im = 0.7885 * Math.sin(angle);
+    const [re, im] = q;
     lines = [
       `The Julia set of z → z² + c with c = ${fixed(re, 3)} ${im < 0 ? '−' : '+'} ${fixed(Math.abs(im), 3)}i.`,
       'Each point is squared and shifted by c, over and over. Dark points never leave; the colours count how long the others take.',
     ];
   } else if (kind === 6) {
-    const k = 2 + Math.floor(u(1) * 7);
+    const k = n(0);
     lines = [
-      `The rose r = |cos(${k}θ ⁄ 2)|, which has ${k} petals.`,
-      `Each petal is filled with ${2 + Math.floor(u(2) * 6)} bands, counted outward from the middle.`,
+      `The rose r = |cos(${k}θ ⁄ 2)|, which has ${k} petal${k === 1 ? '' : 's'}.`,
+      `Each petal is filled with ${n(1)} bands, counted outward from the middle.`,
     ];
   } else if (kind === 7) {
-    const size = 32 << Math.floor(u(1) * 2.999);
-    const operation = ['x XOR y', 'x AND y', 'x OR y', 'x × y'][Math.floor(u(2) * 3.999)];
+    const size = Math.max(n(0), 1);
+    const operation = ['x XOR y', 'x AND y', 'x OR y', 'x × y'][clamp(n(1), 0, 3)];
     lines = [
-      `A ${size} × ${size} grid of whole numbers. Each square is coloured by (${operation}) mod ${3 + Math.floor(u(4) * 28.999)}.`,
+      `A ${size} × ${size} grid of whole numbers. Each square is coloured by (${operation}) mod ${Math.max(n(2), 1)}.`,
       'XOR, AND and OR work on the binary digits of x and y one place at a time, which is where the nested squares and triangles come from.',
     ];
   } else if (kind === 8) {
-    const n = 3 + Math.floor(u(1) * 6);
+    const across = Math.max(n(0), 1);
     lines = [
-      `${n * n} points are scattered, one in each square of a ${n} × ${n} grid. Every place takes the colour of the point nearest to it.`,
+      `${across * across} points are scattered, one in each square of a ${across} × ${across} grid. Every place takes the colour of the point nearest to it.`,
       'The dark lines are where two points are equally near.',
     ];
   } else {
     lines = [
       `Formula: ${formulaText(place.design)}`,
-      `Worked at every point with t = ${fixed(u(1), 3)} and u = ${fixed(u(2), 3)}, this picture’s own two numbers.`,
+      `Worked at every point with t = ${fixed(q[0], 3)} and u = ${fixed(q[1], 3)}, this picture’s own two numbers.`,
     ];
   }
   return { title: `${TITLES[kind]} No. ${h % 100000}`, lines };

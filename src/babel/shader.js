@@ -40,6 +40,12 @@ float wSphereHit(vec3 ro, vec3 rd, vec3 center, float radius) {
     return h > 0.0 ? -b - sqrt(h) : -1.0;
 }
 
+// The sRGB curve alone, for colours shown as they are.
+vec3 wSRGB(vec3 c) {
+    c = clamp(c, 0.0, 1.0);
+    return mix(12.92 * c, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c));
+}
+
 // Filmic curve (Narkowicz ACES fit), then the sRGB curve the native render
 // target applies by itself.
 vec3 wToneMap(vec3 x) {
@@ -443,6 +449,12 @@ void main() {
 
     WorldValues P;
     for (int i = 0; i < 8; ++i) { P.v[i] = uV[i]; }
+
+#ifdef BABEL_SCREEN
+    // A world may show something flat in place of the rooms.
+    vec4 flatPicture = BABEL_SCREEN(uv, P);
+    if (flatPicture.w > 0.5) { fragColor = vec4(wSRGB(flatPicture.xyz), 1.0); return; }
+#endif
 
     BabelDesign D;
     D.n = int(uV[1].x + 0.5);

@@ -35,9 +35,28 @@
       <p id="failure" class="caption" role="alert" hidden></p>
     </form>
     <div id="label" class="panel" hidden>
-      <header><strong id="labelTitle"></strong><button id="stepBack" class="plain" aria-label="Step back">✕</button></header>
+      <header><strong id="labelTitle"></strong><span>
+        <button id="explore" class="plain" aria-label="Explore this picture close up" title="Explore close up">⊕</button>
+        <button id="stepBack" class="plain" aria-label="Step back">✕</button></span></header>
       <div id="labelLines"></div>
     </div>
+    <section id="studio" class="panel" aria-label="This picture close up" hidden>
+      <header><strong id="studioTitle"></strong><span>
+        <button id="studioFold" class="plain" aria-label="Hide the numbers" aria-expanded="true" title="Hide the numbers">⌃</button>
+        <button id="studioClose" class="plain" aria-label="Back to the room" title="Back to the room (Esc)">✕</button></span></header>
+      <div id="studioBody">
+        <div id="studioLines"></div>
+        <label id="studioFormulaRow" class="line" hidden>
+          <span class="caption">Formula</span>
+          <input id="studioFormula" type="text" spellcheck="false" autocapitalize="off" autocorrect="off" placeholder="xy*4*s" aria-label="Formula">
+        </label>
+        <div id="studioKnobs"></div>
+        <div class="line studioFoot"><span id="studioZoom" class="caption"></span><span class="spacer"></span>
+          <button type="button" id="studioRestore" class="plain small">↺ Its own numbers</button>
+          <button type="button" id="studioFit" class="plain small">⤢ Whole picture</button></div>
+        <p class="caption">Scroll or pinch to zoom, drag to move, double-click to dive toward a spot. Esc goes back.</p>
+      </div>
+    </section>
   </div>
 
   <aside id="controls" class="panel" aria-label="Controls"></aside>
