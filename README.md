@@ -81,11 +81,12 @@ The pictures on the library's cards live in `thumbs/` and are made by
 and the Mandelbulb have pages of their own; they show the same card
 (`src/welcome.js`), whose stops open the tour at that place.
 
-The worlds on the 2D shelf have the app's explorers: one point, set by
-clicking the picture, typing or the arrow keys, the verdict on it, a table of
-steps, and the chosen step worked out. The engine shows any world's
-`explorer`, which has the same fields as the app's `WorldExplorer`; the 3D
-worlds' explorers are still to be carried over (the Mandelbulb has its own).
+Every world has the app's explorer (the gallery has none in either): one
+point, set by clicking the picture, typing or the arrow keys, the verdict on
+it, a table of steps, and the chosen step worked out. The engine shows a
+world's `explorer`, which has the same fields as the app's `WorldExplorer`;
+each world's report is carried over from its Swift file. The Mandelbulb's
+explorer is its page's own.
 
 Every world has a ride. Where a world has none of its own (only the Mandelbrot
 set does so far), the ride goes round its sights, one after another, with

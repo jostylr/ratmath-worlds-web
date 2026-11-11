@@ -458,6 +458,125 @@ const tour = [
 
 // MARK: World
 
+// MARK: Explorer
+
+const BALL_RADIUS = 0.10;
+
+/** The walls between the middle of the central room and a point, in the
+    order a reflection into that room crosses them. */
+function wallsTo(r, point, limit = 60) {
+  let p = point;
+  const crossed = [];
+  for (let i = 0; i < limit; i += 1) {
+    let moved = false;
+    for (let index = 0; index < r.directions.length; index += 1) {
+      const n = r.normal(index);
+      if (Hyp3.dot(p, n) > 1e-12) {
+        p = Hyp3.reflect(p, n);
+        crossed.push(index);
+        moved = true;
+      }
+    }
+    if (!moved || crossed.length >= limit) { break; }
+  }
+  return crossed;
+}
+
+/** What the explorer measures from you to its white ball: HyperbolicSpaceWorld.report in the app. */
+function explorerReport(q, state) {
+  const r = room(state);
+  const you = body(state).position;
+  const point = Hyp3.pointFromCentre(q);
+  const radius = Math.hypot(...q);
+  const product = -Hyp3.dot(point, you);
+  const distance = Math.acosh(Math.max(product, 1));
+  const n = (value, digits = 4) => Format.number(value, digits);
+  const four = v => `(${n(v[0], 3)}, ${n(v[1], 3)}, ${n(v[2], 3)}; ${n(v[3], 3)})`;
+
+  // Apparent size.
+  const here = Math.sinh(BALL_RADIUS) / Math.max(Math.sinh(distance), Math.sinh(BALL_RADIUS));
+  const flat = BALL_RADIUS / Math.max(distance, BALL_RADIUS);
+  const angle = Math.asin(Math.min(here, 1));
+  const flatAngle = Math.asin(Math.min(flat, 1));
+  // Room inside a sphere of that radius.
+  const area = 4 * Math.PI * Math.sinh(distance) ** 2;
+  const volume = Math.PI * (Math.sinh(2 * distance) - 2 * distance);
+  // Walls between the middle of this room and the ball.
+  const names = r.isDodecahedron ? Array.from({ length: 12 }, (_, i) => String(i + 1)) : ['+x', '−x', '+y', '−y', '+z', '−z'];
+  const walls = wallsTo(r, point);
+  const sequence = walls.slice(0, 14).map(index => names[index]).join(' ') + (walls.length > 14 ? ' …' : '');
+
+  const rows = [
+    {
+      id: 1, cells: ['1', 'distance from you', n(distance, 3)], workedTitle: 'Distance, worked',
+      worked: [
+        ['ball: r = |(x, y, z)|', n(radius)], ['P = (sinh r · dir; cosh r)', four(point)],
+        ['check: w² − x² − y² − z²', n(-Hyp3.dot(point, point))], ['you, O', four(you)],
+        ['w·w′ − x·x′ − y·y′ − z·z′', n(product)], ['d = arcosh of that', n(distance)],
+      ],
+      note: 'Every point of this space is stored as four numbers (x, y, z; w) with w² − x² − y² − z² = 1, a point on a hyperboloid, much as a point on a globe is three numbers with x² + y² + z² = 1. The distance between two points comes from multiplying them together with that same pattern of signs.',
+    },
+    {
+      id: 2, cells: ['2', 'how big it looks', Format.degrees(2 * angle, 2)], workedTitle: 'Apparent size, worked',
+      worked: [
+        ['ball radius, ρ', n(BALL_RADIUS, 2)], ['sin(half-angle) = sinh ρ ⁄ sinh d', n(here)], ['width in your view', Format.degrees(2 * angle)],
+        ['flat space: ρ ⁄ d', n(flat)], ['flat width', Format.degrees(2 * flatAngle)],
+        ['looks smaller by', `${n(flatAngle / Math.max(angle, 1e-12), 2)}×`],
+      ],
+      note: 'In flat space something twice as far looks half as wide. Here width falls like 1 ⁄ sinh d, which is about 2e^(−d): each extra unit of distance shrinks things by a factor of 2.7. A few rooms away, a ball is a dot.',
+    },
+    {
+      id: 3, cells: ['3', 'room within reach', Format.significant(volume, 4)], workedTitle: 'Sphere of radius d, worked',
+      worked: [
+        ['radius, d', n(distance)], ['surface: 4π sinh² d', Format.significant(area, 5)],
+        ['flat surface: 4πd²', Format.significant(4 * Math.PI * distance * distance, 5)],
+        ['volume: π(sinh 2d − 2d)', Format.significant(volume, 5)],
+        ['flat volume: 4⁄3 πd³', Format.significant(4 / 3 * Math.PI * distance ** 3, 5)],
+      ],
+      note: 'The space inside a given distance grows like e^(2d), not d³. Ten units away there is room for hundreds of millions of rooms. That is why the far field looks so crowded, and why a walk that wanders is so hard to retrace.',
+    },
+    {
+      id: 4, cells: ['4', 'walls in between', String(walls.length)], workedTitle: 'Finding the ball\'s room, worked',
+      worked: [['walls crossed', String(walls.length)], ['in order', sequence || 'none: it is in your room']],
+      note: 'The picture is drawn the same way. A ray leaves your eye and, each time it passes through a wall, it is reflected back into the one room that is actually computed. The ball\'s room is found by reflecting the ball\'s position in walls until it lands inside the central room.',
+    },
+  ];
+  return {
+    headline: `The ball is ${n(distance, 3)} from you`,
+    details: [`It is ${n(BALL_RADIUS, 2)} in radius and looks ${Format.degrees(2 * angle, 1)} wide. In flat space at that distance it would look ${Format.degrees(2 * flatAngle, 1)} wide.`],
+    tableTitle: 'Measurements', columns: ['', 'quantity', 'value'], rows, markers: [],
+  };
+}
+
+const explorer = {
+  title: 'Measuring explorer',
+  subtitle: 'How far, how small, how much room',
+  buttonTitle: 'Measuring explorer',
+  blurb: 'The explorer places a white ball in the space and works out its distance from you, how small it looks, and how much room lies inside that distance.',
+  pointTitle: 'White ball, from the middle of your room',
+  coordinates: ['x', 'y', 'z'].map(label => ({ label, range: [-3, 3] })),
+  moveHint: 'Arrow keys move the ball across your view; with Shift, ↑ and ↓ move it away and nearer. The ball stays put in the space when you walk: back away from it and watch how quickly it shrinks.',
+  initialProbe(state) {
+    // Start a little way ahead of the viewer.
+    const q = Hyp3.fromCentre(Hyp3.pointAt(eyes(state), [0.25, 0.1, -1.2]));
+    return [q[0], q[1], q[2], 0];
+  },
+  report: (probe, state) => explorerReport([probe[0], probe[1], probe[2]], state),
+  move(probe, right, up, away, state) {
+    const f = eyes(state);
+    const p = Hyp3.pointFromCentre([probe[0], probe[1], probe[2]]);
+    // Walk the ball a short way along one of the viewer's directions,
+    // carried to where the ball is.
+    const direction = add(add(times(f.right, right), times(f.up, up)), times(f.back, -away));
+    let tangent = add(direction, times(p, Hyp3.dot(direction, p)));
+    const length = Math.sqrt(Hyp3.dot(tangent, tangent));
+    if (!(length > 1e-9)) { return probe; }
+    tangent = times(tangent, 1 / length);
+    const q = Hyp3.fromCentre(add(times(p, Math.cosh(0.06)), times(tangent, Math.sinh(0.06))));
+    return [q[0], q[1], q[2], 0];
+  },
+};
+
 export const world = {
   id: 'hyperbolic-space',
   title: 'Hyperbolic room',
@@ -517,7 +636,8 @@ export const world = {
     you. In the Axes colouring, beams of a cube honeycomb are coloured by
     which of the cube's three directions they run along.`,
   tour,
-  shaderValues(state) {
+  explorer,
+  shaderValues(state, probe) {
     const r = room(state);
     const f = eyes(state);
     const values = new Array(32).fill(0);
@@ -537,7 +657,11 @@ export const world = {
       const scale = size > 1e-9 ? 1 / Math.sqrt(size) : 1;
       for (let i = 0; i < 4; i += 1) { values[8 + i] = h[i] * scale; }
     }
-    // values[12...15] are the explorer's point; all zero hides it.
+    // The explorer's white ball; all zero hides it.
+    if (probe) {
+      const ball = Hyp3.pointFromCentre([probe[0], probe[1], probe[2]]);
+      for (let i = 0; i < 4; i += 1) { values[12 + i] = ball[i]; }
+    }
     for (let i = 0; i < 4; i += 1) {
       values[16 + i] = f.right[i];
       values[20 + i] = f.up[i];
