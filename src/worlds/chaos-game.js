@@ -3,7 +3,7 @@
 // fern and Koch's coastline, the shapes of Mandelbrot's chapter in Chaos.
 // This is Worlds/Flat/ChaosGameWorld.swift, without its explorer; the tour's
 // words are copied from it.
-import { newState, copyState, keyframe, slider, picker, toggle, readout, group } from './engine.js';
+import { newState, copyState, keyframe, slider, picker, toggle, readout, group, Format } from './engine.js';
 import { SHELF, lookDown, scale, pan, dive, dice } from './flat-support.js';
 import { FRAGMENT } from './shaders/backdrop.js';
 
@@ -383,6 +383,74 @@ const tour = [
 
 // MARK: World
 
+// MARK: Explorer
+
+const pair = p => `(${Format.number(p[0], 3)}, ${Format.number(p[1], 3)})`;
+const signed = value => `${value < 0 ? '−' : '+'} ${Math.abs(value).toFixed(2)}`;
+
+/** What the explorer says about the first thirty throws: ChaosGameWorld.report in the app. */
+function explorerReport(state, row) {
+  const all = moves(state);
+  const q = jump(state);
+  const rule = ruleIndex(state);
+  const rows = [];
+  const markers = [];
+  const selected = clamp(row, 0, 29);
+  play(state, 30, (index, chosen, from, landed) => {
+    const one = all[chosen];
+    const worked = [['from', pair(from)]];
+    if (one.corner) {
+      const toward = [one.corner[0] - from[0], one.corner[1] - from[1]];
+      worked.push(
+        [one.name, pair(one.corner)],
+        ['corner − point', pair(toward)],
+        [`× ${q.toFixed(2)}`, pair([toward[0] * q, toward[1] * q])],
+        ['point + that', pair(landed)]);
+    } else {
+      worked.push(
+        [`${one.a.toFixed(2)}·x ${signed(one.b)}·y ${signed(one.e)}`, Format.number(landed[0], 3)],
+        [`${one.c.toFixed(2)}·x ${signed(one.d)}·y ${signed(one.f)}`, Format.number(landed[1], 3)],
+        ['lands at', pair(landed)]);
+    }
+    rows.push({
+      id: index,
+      cells: [String(index + 1), one.name, pair(landed)],
+      workedTitle: `Throw ${index + 1}, worked`,
+      worked,
+      note: one.corner
+        ? `Wherever the point was, it is now inside the copy of the whole shape that sits at this corner, ${(1 - q).toFixed(2)} the size. The next throw puts it inside a copy of that copy. After a few throws its starting place no longer matters.`
+        : 'The move shrinks the whole plane toward one part of the picture. Wherever the point was, it lands in that part, in the place that corresponds to where it came from.',
+    });
+    if (index === selected) {
+      const at = scene(landed, rule);
+      markers.push({ position: [at[0], at[1], 0], size: 1.3 });
+    }
+    return true;
+  });
+  return {
+    headline: `${RULE_NAMES[rule]}: ${all.length} moves`,
+    details: [
+      rule === 2
+        ? 'The die is loaded: the frond move is chosen 85 times in 100, each leaflet 7, and the stem once.'
+        : `Every move is equally likely${rule === 1 ? ', except that a repeat of the corner just used is thrown again.' : '.'}`,
+      'The throws are made with a fixed list of random numbers, so the same picture comes back every time.',
+    ],
+    tableTitle: 'Throws', columns: ['', 'die', 'lands at'], rows, markers,
+  };
+}
+
+const explorer = {
+  title: 'Throw explorer',
+  subtitle: 'The first thirty throws, one at a time',
+  buttonTitle: 'Throw explorer',
+  blurb: 'The explorer lists the first thirty throws: what the die chose, and the arithmetic of the jump.',
+  pointTitle: '',
+  coordinates: [],
+  moveHint: '',
+  initialProbe: () => [0, 0, 0, 0],
+  report: (probe, state, row) => explorerReport(state, row),
+};
+
 export const world = {
   id: 'chaos-game',
   title: 'Chaos game',
@@ -432,6 +500,7 @@ export const world = {
     Drag to move the picture and pinch to zoom. Double-tap a spot to dive
     toward it.`,
   tour,
+  explorer,
   discreteValues: new Set([RULE, TRAIL]),
   cameraBacksAwayWhenMoving: false,
   drag: (state, probe, dx, dy) => pan(state, dx, dy),

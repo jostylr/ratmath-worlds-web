@@ -4,7 +4,7 @@
 // This is Worlds/Flat/PendulumWorld.swift, without its explorer; the tour's
 // words are copied from it.
 import { newState, copyState, keyframe, slider, toggle, readout, group, Format } from './engine.js';
-import { SHELF, lookDown, plane, pan, dive } from './flat-support.js';
+import { SHELF, PINK, dot, view, scale, lookDown, plane, pan, dive } from './flat-support.js';
 import { FRAGMENT } from './shaders/pendulum.js';
 
 // Indices into the state's values.
@@ -283,6 +283,75 @@ const tour = [
 
 const two = value => value.toFixed(2);
 
+// MARK: Explorer
+
+const pair = p => `(${Format.number(p[0], 3)}, ${Format.number(p[1], 3)})`;
+
+/** What the explorer says about one swing: PendulumWorld.report in the app. */
+function explorerReport(point, state, row) {
+  const path = cachedSwing(point, state);
+  const every = Math.round(1 / DT);
+  const rows = [];
+  for (let second = 0; second <= 30; second += 1) {
+    const index = Math.min(second * every, path.points.length - 1);
+    const p = path.points[index];
+    const velocity = path.velocities[index];
+    const f = forces(p, velocity, state);
+    rows.push({
+      id: second,
+      cells: [String(second), pair(p), Format.number(Math.hypot(...velocity), 3)],
+      workedTitle: `At time ${second}, worked`,
+      worked: [
+        ['position', pair(p)],
+        ['velocity', pair(velocity)],
+        ['pull to the middle', pair(f.spring)],
+        ['friction', pair(f.drag)],
+        ['red magnet', pair(f.magnets[0])],
+        ['yellow magnet', pair(f.magnets[1])],
+        ['blue magnet', pair(f.magnets[2])],
+        ['all together', pair(f.total)],
+      ],
+      note: `The total is how the velocity is changing. Each step, ${DT} of a time unit long, adds that much of it to the velocity, and then that much of the velocity to the position. The picture does the same for every pixel.`,
+    });
+  }
+  const end = nearestMagnet(path.points[path.points.length - 1]);
+  let headline;
+  let details;
+  if (path.settled !== null) {
+    headline = `Rests over ${MAGNET_NAMES[end]}`;
+    details = [`By time ${Format.number(path.settled * DT, 1)} it is too slow and too close to that magnet to escape.`];
+  } else {
+    headline = `Still swinging at time ${Math.trunc(DURATION)}`;
+    details = [`It is nearest ${MAGNET_NAMES[end]} when the following stops.`];
+  }
+  details.push('In a tangled region the colour under this point and the ending worked out here can disagree: the picture uses shorter numbers, and there the last digits decide. That disagreement is the subject of this world.');
+  const at = path.points[Math.min(Math.min(Math.max(row, 0), 30) * every, path.points.length - 1)];
+  return {
+    headline, details, tableTitle: 'The swing, once each time unit', columns: ['t', 'position', 'speed'], rows,
+    markers: [dot(view(at, state), PINK, 0.016)].filter(Boolean),
+  };
+}
+
+const explorer = {
+  title: 'Swing explorer',
+  subtitle: 'One swing, and the forces at each moment',
+  buttonTitle: 'Swing explorer',
+  blurb: 'The explorer follows one swing: where the bob is at each moment, how fast, and every force acting on it.',
+  pointTitle: 'Where the bob is let go',
+  coordinates: [{ label: 'x', range: [-3, 3] }, { label: 'y', range: [-3, 3] }],
+  moveHint: 'Arrow keys move the starting place. Click or tap the picture to put it there. Zoom in before nudging it: near a border the smallest move changes the ending.',
+  initialProbe: state => [state.values[START_X], state.values[START_Y], 0, 0],
+  report: (probe, state, row) => explorerReport([probe[0], probe[1]], state, row),
+  move(probe, right, up, away, state) {
+    const step = 0.02 * scale(state);
+    return [probe[0] + right * step, probe[1] + up * step, 0, 0];
+  },
+  pick(viewPoint, state) {
+    const point = plane(viewPoint, state);
+    return [point[0], point[1], 0, 0];
+  },
+};
+
 export const world = {
   id: 'pendulum',
   title: 'Magnetic pendulum',
@@ -330,6 +399,7 @@ export const world = {
     Drag to move the picture and pinch to zoom. Double-tap a spot to dive
     toward it. A single tap chooses where the bob is let go.`,
   tour,
+  explorer,
   shaderValues(state) {
     const values = new Array(32).fill(0);
     values[0] = state.values[FRICTION];
