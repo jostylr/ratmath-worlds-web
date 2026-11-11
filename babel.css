@@ -110,16 +110,52 @@ dialog#find::backdrop { background: rgba(0, 0, 0, 0.4); }
 .volume footer input { flex: 1; min-width: 60px; }
 .volume footer button { text-align: center; min-width: 36px; }
 
-/* The cover shows round the block of pages, thicker at the spine. */
+/* The cover shows round the block of pages, with the edges of the pages
+   beneath peeping out at the foot. */
 #cover {
-  padding: 8px 8px 8px 14px;
+  padding: 9px;
   border-radius: 6px;
   background: var(--cover);
   box-shadow: 0 10px 36px rgba(0, 0, 0, 0.6);
   touch-action: pan-y;
+  align-self: center;
 }
-.leaves { position: relative; perspective: 1800px; }
-#page, #leaf {
+#reader:not(.two) #cover { padding-left: 15px; }
+.spread {
+  position: relative;
+  display: flex;
+  perspective: 2400px;
+  box-shadow: 0 3px 0 color-mix(in srgb, var(--paper) 82%, black);
+}
+.spread canvas { display: block; width: var(--pageWidth); height: var(--pageHeight); }
+#reader:not(.two) #leftPage { display: none; }
+/* The fold between the pages. */
+#reader.two .spread::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(50% - 5px);
+  width: 10px;
+  background: linear-gradient(to right, transparent, rgba(0, 0, 0, 0.28), transparent);
+  pointer-events: none;
+}
+#leaf {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: var(--pageWidth);
+  height: var(--pageHeight);
+  transform-origin: left center;
+  transform-style: preserve-3d;
+  transition: transform 0.55s ease-in-out;
+  z-index: 1;
+}
+#reader.two #leaf { left: 50%; }
+#leaf canvas { position: absolute; inset: 0; backface-visibility: hidden; box-shadow: 0 0 14px rgba(0, 0, 0, 0.25); }
+#leafBack { transform: rotateY(180deg); }
+@media (prefers-reduced-motion: reduce) { #leaf { transition-duration: 0.01s; } }
+#page {
   margin: 0;
   padding: 18px;
   font: var(--weight) var(--size) / 1.24 var(--font);
@@ -128,15 +164,8 @@ dialog#find::backdrop { background: rgba(0, 0, 0, 0.4); }
   white-space: pre;
   overflow: hidden;
 }
-#leaf {
-  position: absolute;
-  inset: 0;
-  transform-origin: left center;
-  transition: transform 0.38s ease-in-out;
-  backface-visibility: hidden;
-  box-shadow: 4px 0 14px rgba(0, 0, 0, 0.25);
-}
-@media (prefers-reduced-motion: reduce) { #leaf { transition-duration: 0.01s; } }
+#reader:not(.reading) #page { display: none; }
+#reader.reading .spread { display: none; }
 
 /* The art gallery: its bar and the label of a picture stack at the top left. */
 
@@ -192,7 +221,6 @@ button.plain.small { font-size: 0.8rem; }
 #reader.reading .volume { width: min(100%, 760px); height: min(100%, 900px); overflow: hidden; }
 #reader.reading #cover { min-height: 0; flex: 1; overflow-y: auto; overscroll-behavior: contain; }
 #reader.reading #page { font: 400 18px / 1.65 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
-#reader.reading #leaf { display: none; }
 .volume header { flex-wrap: wrap; }
 .volume header > div { flex: 1 1 120px; }
 .volume header button { flex-shrink: 0; }

@@ -14,6 +14,7 @@ precision highp int;
 uniform vec2 uResolution;
 uniform vec2 uCamera; // yaw, pitch
 uniform vec4 uV[8];   // the world's thirty-two numbers, as in the Metal file
+uniform highp sampler2D uData; // the world's longer table (shaderData), 1024 to a row
 out vec4 fragColor;
 
 struct WorldValues {
@@ -84,7 +85,10 @@ struct BabelDesign {
     float doorH;
     vec3 chosen; // wall, shelf, volume
     bool taken;
+    float footprint; // the width a pixel covers where the ray meets a wall
 };
+
+vec4 bTable(BabelDesign D, int i) { return texelFetch(uData, ivec2(i % 1024, i / 1024), 0); }
 
 struct BabelStyle {
     vec3 stone;
@@ -304,6 +308,68 @@ vec2 bStoneTilt(vec2 p) {
 
 
 
+// MARK: Lettering
+
+// The table (shaderData) starts with a font of 96 glyphs, characters 32 to
+// 126, eight dots by twelve; then two entries for each book of this room:
+// the length of its first word (0 if not yet known, -1 if it has none),
+// then the letters, three to a number, seven bits each.
+#define B_GLYPHS 96
+
+float bGlyphDot(BabelDesign D, int code, int col, int row) {
+    if (col < 0 || col > 7 || row < 0 || row > 11) { return 0.0; }
+    vec4 rows = bTable(D, code);
+    float triple = row < 3 ? rows.x : (row < 6 ? rows.y : (row < 9 ? rows.z : rows.w));
+    uint bits = uint(triple + 0.5);
+    return float((bits >> uint((row % 3) * 8 + col)) & 1u);
+}
+
+// How much of a point in a glyph is ink. g is in dots, (0, 0) at the top
+// left; blur is how far, in dots, a pixel reaches.
+float bGlyph(BabelDesign D, int code, vec2 g, float blur) {
+    vec2 q = g - 0.5;
+    vec2 i = floor(q);
+    vec2 f = q - i;
+    int x = int(i.x);
+    int y = int(i.y);
+    float a = bGlyphDot(D, code, x, y);
+    float b = bGlyphDot(D, code, x + 1, y);
+    float c = bGlyphDot(D, code, x, y + 1);
+    float d = bGlyphDot(D, code, x + 1, y + 1);
+    float v = mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+    float w = clamp(0.12 + 0.6 * blur, 0.12, 0.5);
+    // Too small to make out: just the tone of the lettering.
+    return mix(smoothstep(0.5 - w, 0.5 + w, v), 0.3, clamp(blur - 0.7, 0.0, 1.0));
+}
+
+// The ink of a book's first word, run down its spine as on most shelves:
+// read with the head tipped to the right. aa runs across the spine, left to
+// right, and bb along it from the shelf up; width and length are the
+// spine's in metres. Returns the ink, and in y whether the point lies in the
+// band the title takes up.
+vec2 bSpineWord(BabelDesign D, int slot, float aa, float bb, float width, float length) {
+    vec4 head = bTable(D, B_GLYPHS + 2 * slot);
+    int count = int(head.x + 0.5);
+    if (count <= 0) { return vec2(0.0); }
+    vec4 rest = bTable(D, B_GLYPHS + 2 * slot + 1);
+    float glyphHeight = min(0.55 * width, 0.5 * length / (float(count) * 0.62));
+    float advance = glyphHeight * 0.62;
+    // bb is measured up from the shelf; the word starts at the top.
+    float along = (0.5 - bb) * length + float(count) * advance * 0.5;
+    float across = (aa - 0.5) * width;
+    float band = abs((bb - 0.5) * length) < float(count) * advance * 0.5 + 0.35 * glyphHeight ? 1.0 : 0.0;
+    int k = int(floor(along / advance));
+    if (k < 0 || k >= count || abs(across) > 0.5 * glyphHeight) { return vec2(0.0, band); }
+    float triple = k < 3 ? head.y : (k < 6 ? head.z : (k < 9 ? head.w
+        : (k < 12 ? rest.x : (k < 15 ? rest.y : rest.z))));
+    int shift = 7 * (k % 3);
+    int code = int((uint(triple + 0.5) >> uint(shift)) & 127u);
+    float cell = glyphHeight / 12.0;
+    vec2 g = vec2((along - float(k) * advance) / cell - (0.62 * 12.0 - 8.0) * 0.5,
+                      5.0 - across / cell);
+    return vec2(bGlyph(D, code, g, D.footprint / cell), band);
+}
+
 // A wall of shelves. u runs left to right as seen from inside the room.
 BabelSurface bShelves(
     float u, float y, int wallIndex, uint seed, BabelStyle style, BabelDesign D, bool here,
@@ -374,7 +440,19 @@ BabelSurface bShelves(
             if (bands > 0.75) { band = band || (bb > 0.20 && bb < 0.212) || (bb > 0.79 && bb < 0.802); }
             if (band) { albedo = gold; gloss = 0.9; }
         }
-        if (label > 0.35 && bb > 0.50 && bb < 0.78 && aa > 0.12 && aa < 0.88) {
+        vec2 word = here ? bSpineWord(D, slot, aa, bb, thickness * pitch, height * opening) : vec2(0.0);
+        float lettered = here ? bTable(D, B_GLYPHS + 2 * slot).x : 0.0;
+        if (lettered != 0.0) {
+            // The first word, on a label or straight on the leather.
+            vec3 ink = gold;
+            if (label > 0.35 && word.y > 0.5 && aa > 0.10 && aa < 0.90) {
+                albedo = label > 0.7 ? vec3(0.74, 0.68, 0.54) : cover * 0.45;
+                ink = label > 0.7 ? vec3(0.10, 0.07, 0.05) : gold;
+                gloss = 0.1;
+            }
+            albedo = mix(albedo, ink, word.x);
+            gloss = mix(gloss, ink.x > 0.5 ? 0.9 : 0.1, word.x);
+        } else if (label > 0.35 && bb > 0.50 && bb < 0.78 && aa > 0.12 && aa < 0.88) {
             vec3 paper = label > 0.7 ? vec3(0.74, 0.68, 0.54) : cover * 0.45;
             vec3 ink = label > 0.7 ? vec3(0.10, 0.07, 0.05) : gold;
             // The title runs down the spine: a column of small marks.
@@ -475,10 +553,13 @@ void main() {
     D.doorH = min(2.1, D.H - 0.25);
     D.chosen = uV[5].xyz;
     D.taken = uV[5].w > 0.5;
+    D.footprint = 0.0;
 
     float yaw = uCamera.x;
     float pitch = uCamera.y;
     float lens = uV[0].w;
+    // The angle one pixel spans, near the middle of the view.
+    float pixelAngle = 0.87 * lens / min(uResolution.x, uResolution.y);
     vec3 ro = uV[0].xyz;
     vec3 rd = wRotateY(wRotateX(normalize(vec3(uv * 0.72 * lens, -1.65)), pitch), yaw);
 
@@ -640,6 +721,7 @@ void main() {
                                                    + vec3(0.0, tilt.y, 0.0));
                     }
                 } else {
+                    D.footprint = pixelAngle * travelled;
                     surface = bShelves(across, p.y, bShelvedIndex(wall, D.n, D.open), seed, style, D,
                                          here, vec3(nn.x, 0.0, nn.y), vec3(tt.x, 0.0, tt.y), P, off);
                 }

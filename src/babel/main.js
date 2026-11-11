@@ -7,6 +7,8 @@ import * as L from './library.js';
 import * as W from './world.js';
 import { VERTEX, FRAGMENT } from './shader.js';
 import { TOUR } from './tour.js';
+import { Spines } from './spines.js';
+import * as Pages from './pages.js';
 
 const $ = id => document.getElementById(id);
 const canvas = $('view');
@@ -27,14 +29,37 @@ const gl = canvas.getContext('webgl2', { antialias: false, alpha: false });
 let program = null;
 const uniforms = {};
 const quality = new RenderQuality();
+// The spines' font and first words, as a texture 1024 wide.
+const spines = new Spines(() => { dirty = true; });
+let dataTexture = null;
 const graphics = manageGraphics(canvas, () => {
   if (!gl) { throw new Error('WebGL 2 is unavailable.'); }
   program = compileProgram(gl, VERTEX, FRAGMENT);
-  for (const name of ['uResolution', 'uCamera', 'uV']) {
+  for (const name of ['uResolution', 'uCamera', 'uV', 'uData']) {
     uniforms[name] = gl.getUniformLocation(program, name);
   }
   gl.bindVertexArray(gl.createVertexArray());
+  dataTexture = null;
 }, () => { dirty = true; });
+
+function bindSpines() {
+  const table = spines.table(scene.place, scene.yaw, W.geometry(scene.place.design));
+  const rows = Math.max(1, Math.ceil(table.length / 4096));
+  const padded = new Float32Array(4096 * rows);
+  padded.set(table);
+  if (!dataTexture || !gl.isTexture(dataTexture)) {
+    dataTexture = gl.createTexture();
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, dataTexture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  }
+  gl.activeTexture(gl.TEXTURE1);
+  gl.bindTexture(gl.TEXTURE_2D, dataTexture);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, 1024, rows, 0, gl.RGBA, gl.FLOAT, padded);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.uniform1i(uniforms.uData, 1);
+}
 
 function draw() {
   if (!graphics.ready || document.hidden) { return; }
@@ -52,6 +77,7 @@ function draw() {
   const values = new Float32Array(32);
   values.set(W.shaderValues(scene));
   gl.uniform4fv(uniforms.uV, values);
+  bindSpines();
   gl.drawArrays(gl.TRIANGLES, 0, 3);
 }
 
@@ -219,20 +245,75 @@ function setReading(value) {
   $('leaf').hidden = true;
   $('cover').scrollTop = 0;
   fitPage();
+  if (scene.place.page > 0) { drawSpread(scene.place.page); }
 }
 $('readerMode').addEventListener('click', () => setReading(!reading));
+addEventListener('resize', () => { if (scene.place.page > 0) { refreshReader(); } });
+
+/** Two pages side by side, unless that would make the type too small. */
+let twoPages = true;
+let pageCSS = { width: 0, height: 0 };
 
 function fitPage() {
   const d = scene.place.design;
   const touring = tourIndex !== null;
   const wide = innerWidth > innerHeight * 1.2;
-  const width = Math.max(Math.min(innerWidth - (touring && wide ? 500 : 0) - 110, 760), 120);
+  const width = Math.max(innerWidth - (touring && wide ? 500 : 0) - 110, 120);
   const height = Math.max(innerHeight * (touring && !wide ? 0.55 : 1) - 210, 120);
-  // A monospaced letter is six tenths of its size wide.
-  const size = Math.max(Math.min(width / (d.columns * 0.61), height / (d.lines * 1.24), 28), 3);
+  const shape = Pages.pageSize(d);
+  const single = Math.min(width / shape.width, height / shape.height, 22);
+  const double = Math.min(width / (2 * shape.width), height / shape.height, 22);
+  twoPages = double >= 0.6 * single;
+  const em = Math.max(twoPages ? double : single, 1);
+  pageCSS = { width: Math.round(shape.width * em), height: Math.round(shape.height * em) };
+  reader.style.setProperty('--pageWidth', pageCSS.width + 'px');
+  reader.style.setProperty('--pageHeight', pageCSS.height + 'px');
+  reader.classList.toggle('two', twoPages);
+  // Reader mode's page keeps the old measure.
+  const size = Math.max(Math.min(Math.min(width, 760) / (d.columns * 0.61), height / (d.lines * 1.24), 28), 3);
   reader.style.setProperty('--size', size + 'px');
   reader.classList.toggle('touring', touring);
   reader.classList.toggle('wide', wide);
+}
+
+/** The pages facing each other: page 1 is a right-hand page, faced by the endpaper. */
+const spreadOf = page => {
+  const left = 2 * Math.floor(page / 2);
+  return [left, left + 1];
+};
+
+function paint(canvasElement, number, left) {
+  const place = scene.place;
+  const ratio = Math.min(devicePixelRatio || 1, 1600 / Math.max(pageCSS.width, 1));
+  const width = Math.max(Math.round(pageCSS.width * ratio), 1);
+  const height = Math.max(Math.round(pageCSS.height * ratio), 1);
+  const look = W.bookLook(place);
+  const key = [shownBook, number, width, height, left].join('|');
+  if (canvasElement.dataset.key === key) { return; }
+  canvasElement.width = width;
+  canvasElement.height = height;
+  Pages.drawPage(canvasElement, {
+    book: L.bookOf(place), design: place.design, number, look, hash: L.bookHash(place), left,
+  });
+  canvasElement.dataset.key = key;
+  canvasElement.setAttribute('aria-label', number >= 1 && number <= place.design.pages ? `Page ${number}` : 'Endpaper');
+}
+
+/** Lays the book open at a page, with nothing turning. */
+function drawSpread(page) {
+  clearTimeout(turnTimer);
+  $('leaf').hidden = true;
+  const book = L.bookOf(scene.place);
+  $('page').textContent = book ? L.pageOf(book, scene.place.design, page).join('\n')
+    : 'No book stands here: the library ends before this shelf.';
+  if (reading) { return; }
+  if (twoPages) {
+    const [left, right] = spreadOf(page);
+    paint($('leftPage'), left, true);
+    paint($('rightPage'), right, false);
+  } else {
+    paint($('rightPage'), page, false);
+  }
 }
 
 function refreshReader() {
@@ -247,8 +328,9 @@ function refreshReader() {
   }
   const key = L.addressText({ ...place, page: 0 });
   const book = L.bookOf(place);
-  const text = number => (book ? L.pageOf(book, place.design, number).join('\n')
-    : 'No book stands here: the library ends before this shelf.');
+  const wasTwo = twoPages;
+  const wasSize = pageCSS.width;
+  fitPage();
 
   if (key !== shownBook) {
     shownBook = key;
@@ -256,52 +338,81 @@ function refreshReader() {
     // Each newly opened book begins with its original layout, on every device.
     setReading(false);
     const look = W.bookLook(place);
-    for (const [name, value] of Object.entries(look)) { reader.style.setProperty('--' + name, value); }
+    for (const name of ['cover', 'paper', 'ink', 'font', 'weight']) { reader.style.setProperty('--' + name, look[name]); }
     $('bookTitle').textContent = book ? (L.titleOf(book, place.design) || 'untitled') : ' ';
+    $('bookTitle').style.fontFamily = look.font;
     $('bookWhere').textContent = `Wall ${place.wall} · shelf ${place.shelf} · volume ${place.volume}`;
     $('pageSlider').max = place.design.pages;
     $('pageSlider').hidden = place.design.pages <= 1;
-    $('page').textContent = text(place.page);
-    $('leaf').hidden = true;
+    drawSpread(place.page);
   } else if (place.page !== shownPage) {
-    turnLeaf(text(shownPage), text(place.page), place.page > shownPage);
+    turnLeaf(shownPage, place.page);
     shownPage = place.page;
+  } else if (wasTwo !== twoPages || wasSize !== pageCSS.width) {
+    drawSpread(place.page);
   }
-  fitPage();
   $('pageSlider').value = place.page;
-  $('pageLabel').textContent = `page ${place.page} of ${place.design.pages}`;
+  const [left, right] = spreadOf(place.page);
+  const shown = twoPages ? [left, right].filter(n => n >= 1 && n <= place.design.pages) : [place.page];
+  $('pageLabel').textContent = shown.length === 2
+    ? `pages ${shown[0]}–${shown[1]} of ${place.design.pages}`
+    : `page ${shown[0] ?? place.page} of ${place.design.pages}`;
   $('pageSlider').disabled = !book;
   $('readerMode').disabled = !book;
-  $('previous').disabled = !book || place.page <= 1;
-  $('next').disabled = !book || place.page >= place.design.pages;
+  const single = !twoPages || reading;
+  $('previous').disabled = !book || (single ? place.page <= 1 : left < 1);
+  $('next').disabled = !book || (single ? place.page >= place.design.pages : right >= place.design.pages);
 }
 
 /**
- * Turns the leaf: forward, the old page lifts away from the new one; back,
- * the earlier page comes down over the later.
+ * Turns the leaf about the spine: forward, the right-hand page lifts over
+ * to the left; back, the left-hand one comes over to the right.
  */
-function turnLeaf(oldText, newText, forward) {
-  const page = $('page');
-  const leaf = $('leaf');
+function turnLeaf(from, to) {
   clearTimeout(turnTimer);
-  if (reading || reducedMotion()) {
-    page.textContent = newText;
-    leaf.hidden = true;
+  const two = twoPages;
+  if (reading || reducedMotion() || (two && spreadOf(from)[0] === spreadOf(to)[0])) {
+    drawSpread(to);
     $('cover').scrollTop = 0;
     return;
   }
+  const forward = to > from;
+  const leaf = $('leaf');
+  let front;
+  let back = null;
+  let start;
+  let end;
+  if (two) {
+    const a = spreadOf(from);
+    const b = spreadOf(to);
+    paint($('leftPage'), forward ? a[0] : b[0], true);
+    paint($('rightPage'), forward ? b[1] : a[1], false);
+    front = forward ? a[1] : b[1];
+    back = forward ? b[0] : a[0];
+    [start, end] = forward ? [0, -180] : [-180, 0];
+  } else {
+    paint($('rightPage'), forward ? to : from, false);
+    front = forward ? from : to;
+    [start, end] = forward ? [0, -100] : [-100, 0];
+  }
+  paint($('leafFront'), front, false);
+  $('leafBack').hidden = back === null;
+  if (back !== null) { paint($('leafBack'), back, true); }
   leaf.style.transition = 'none';
-  leaf.textContent = forward ? oldText : newText;
-  leaf.style.transform = `rotateY(${forward ? 0 : -100}deg)`;
+  leaf.style.transform = `rotateY(${start}deg)`;
   leaf.hidden = false;
-  if (forward) { page.textContent = newText; }
   void leaf.offsetWidth; // start the transition from here
   leaf.style.transition = '';
-  leaf.style.transform = `rotateY(${forward ? -100 : 0}deg)`;
-  turnTimer = setTimeout(() => {
-    page.textContent = newText;
-    leaf.hidden = true;
-  }, 400);
+  leaf.style.transform = `rotateY(${end}deg)`;
+  turnTimer = setTimeout(() => drawSpread(scene.place.page), 580);
+}
+
+/** On to the next pages, or back to the previous ones. */
+function step(direction) {
+  const page = scene.place.page;
+  if (!twoPages || reading) { setPage(page + direction); return; }
+  const [left, right] = spreadOf(page);
+  setPage(direction > 0 ? right + 1 : left - 1);
 }
 
 function setPage(number, animated = true) {
@@ -309,11 +420,9 @@ function setPage(number, animated = true) {
   if (scene.place.page === 0 || !L.bookOf(scene.place) || target === scene.place.page) { return; }
   cancelAnimation();
   if (!animated) {
-    clearTimeout(turnTimer);
-    $('leaf').hidden = true;
     $('cover').scrollTop = 0;
     shownPage = target;
-    $('page').textContent = L.pageOf(L.bookOf(scene.place), scene.place.design, target).join('\n');
+    drawSpread(target);
   }
   scene.place.page = target;
   changed();
@@ -325,8 +434,8 @@ function putBack() {
   changed();
 }
 
-$('previous').addEventListener('click', () => setPage(scene.place.page - 1));
-$('next').addEventListener('click', () => setPage(scene.place.page + 1));
+$('previous').addEventListener('click', () => step(-1));
+$('next').addEventListener('click', () => step(1));
 $('putBack').addEventListener('click', putBack);
 $('pageSlider').addEventListener('input', event => setPage(Number(event.target.value), false));
 
@@ -339,7 +448,7 @@ $('cover').addEventListener('pointerup', event => {
   swipeStart = null;
   // A swipe, and not the selecting of a line of text.
   if (!reading && Math.abs(dx) > 60 && Math.abs(dx) > 2 * Math.abs(dy) && event.pointerType !== 'mouse') {
-    setPage(scene.place.page + (dx < 0 ? 1 : -1));
+    step(dx < 0 ? 1 : -1);
   }
 });
 
@@ -415,8 +524,8 @@ window.addEventListener('keydown', event => {
   }
   const key = event.key.toLowerCase();
   if (scene.place.page > 0) {
-    if (key === 'arrowleft') { setPage(scene.place.page - 1); }
-    else if (key === 'arrowright') { setPage(scene.place.page + 1); }
+    if (key === 'arrowleft') { step(-1); }
+    else if (key === 'arrowright') { step(1); }
     else if (key === 'escape') { putBack(); }
     else { return; }
     event.preventDefault();

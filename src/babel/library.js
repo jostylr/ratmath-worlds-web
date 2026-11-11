@@ -378,7 +378,15 @@ export function bookAt(location, design) {
     pass(digits, true, true, seedOf(1, design), base);
     pass(digits, false, true, seedOf(2, design), base);
   } else if (design.mode === MODE.seeded) {
-    // Soak up the place, then let a generator run.
+    seeded(location, digits, design);
+  }
+  return digits;
+}
+
+/** A book of the seeded library: the place is soaked up, then a generator runs. */
+function seeded(location, digits, design) {
+  const base = design.alphabet;
+  {
     const state = [seedOf(3, design), seedOf(4, design), seedOf(5, design), seedOf(6, design)];
     for (let i = 0; i < location.length; ++i) {
       if (location[i] === 0) { continue; }
@@ -405,7 +413,108 @@ export function bookAt(location, design) {
       digits[i] = (result >>> 8) % base;
     }
   }
-  return digits;
+}
+
+/**
+ * The first `count` digits of the books in a room's slots, in the given
+ * order, handed to `deliver` a few at a time; it returns false to stop.
+ * Nothing more is written out. In the shuffled library the first letter
+ * depends on every digit of the place, so each book still costs one walk
+ * along its whole length, but the first pass is shared: the places of one
+ * room differ only in their last digits. BabelGenerator.openings in the app.
+ */
+export function openings(room, books, design, count, order, deliver) {
+  const length = charactersPerBook(design);
+  const shown = Math.min(count, length);
+  const base = design.alphabet;
+  let batch = [];
+  const send = (slot, digits) => {
+    batch.push({ slot, digits });
+    if (batch.length < 8) { return true; }
+    const out = batch;
+    batch = [];
+    return deliver(out);
+  };
+  const slots = order.filter(slot => slot < books);
+
+  if (design.mode !== MODE.shuffled) {
+    for (const slot of slots) {
+      const location = locationOfSlot(room, slot, design);
+      if (!location) { continue; }
+      let digits;
+      if (design.mode === MODE.ordered) {
+        digits = location.slice(0, shown);
+      } else {
+        digits = new Uint8Array(shown);
+        seeded(location, digits, design);
+      }
+      if (!send(slot, digits)) { return; }
+    }
+    if (batch.length) { deliver(batch); }
+    return;
+  }
+
+  const reference = locationOfSlot(room, 0, design);
+  if (!reference) { return; }
+  const tail = Math.min(64, length);
+  const shared = length - tail;
+  const front = Uint8Array.from(reference);
+  let sharedState = seedOf(1, design);
+  for (let i = 0; i < shared; ++i) {
+    const output = (front[i] + (sharedState >>> 8) % base) % base;
+    front[i] = output;
+    sharedState = chain(sharedState, output);
+  }
+  const backSeed = seedOf(2, design);
+
+  for (const slot of slots) {
+    const location = locationOfSlot(room, slot, design);
+    if (!location) { continue; }
+    let same = true;
+    for (let i = 0; i < shared && same; ++i) { same = location[i] === reference[i]; }
+    if (!same) {
+      // A carry reached far up the number: walk this one in full.
+      if (!send(slot, bookAt(location, design).slice(0, shown))) { return; }
+      continue;
+    }
+    const digits = new Uint8Array(shown);
+    const end = location.slice(shared);
+    let s = sharedState;
+    for (let i = 0; i < tail; ++i) {
+      const output = (end[i] + (s >>> 8) % base) % base;
+      end[i] = output;
+      s = chain(s, output);
+    }
+    s = backSeed;
+    for (let i = tail - 1; i >= 0; --i) {
+      const output = (end[i] + (s >>> 8) % base) % base;
+      if (shared + i < shown) { digits[shared + i] = output; }
+      s = chain(s, output);
+    }
+    let i = shared - 1;
+    for (; i >= shown; --i) {
+      // chain(), written out: this loop is where the time goes.
+      const output = (front[i] + (s >>> 8) % base) % base;
+      let x = Math.imul((s ^ (output + 1)) >>> 0, 0x9e3779b1) >>> 0;
+      x ^= x >>> 15;
+      x = Math.imul(x, 0x85ebca77) >>> 0;
+      x ^= x >>> 13;
+      s = x >>> 0;
+    }
+    for (; i >= 0; --i) {
+      const output = (front[i] + (s >>> 8) % base) % base;
+      digits[i] = output;
+      s = chain(s, output);
+    }
+    if (!send(slot, digits)) { return; }
+  }
+  if (batch.length) { deliver(batch); }
+}
+
+/** The digits of a room's number, for `openings`. */
+export function roomDigitsOf(place) {
+  const room = roomOf(place);
+  return room ? roomOfCoordinates(room.axes, place.design) : null;
 }
 
 /** The place of a book; null in a library that cannot be searched. */

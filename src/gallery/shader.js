@@ -14,6 +14,7 @@ precision highp int;
 uniform vec2 uResolution;
 uniform vec2 uCamera; // yaw, pitch
 uniform vec4 uV[8];   // the world's thirty-two numbers, as in the Metal file
+uniform highp sampler2D uData; // the world's longer table (shaderData), 1024 to a row
 out vec4 fragColor;
 
 struct WorldValues {
@@ -84,7 +85,10 @@ struct BabelDesign {
     float doorH;
     vec3 chosen; // wall, shelf, volume
     bool taken;
+    float footprint; // the width a pixel covers where the ray meets a wall
 };
+
+vec4 bTable(BabelDesign D, int i) { return texelFetch(uData, ivec2(i % 1024, i / 1024), 0); }
 
 struct BabelStyle {
     vec3 stone;
@@ -812,10 +816,13 @@ void main() {
     D.doorH = min(2.1, D.H - 0.25);
     D.chosen = uV[5].xyz;
     D.taken = uV[5].w > 0.5;
+    D.footprint = 0.0;
 
     float yaw = uCamera.x;
     float pitch = uCamera.y;
     float lens = uV[0].w;
+    // The angle one pixel spans, near the middle of the view.
+    float pixelAngle = 0.87 * lens / min(uResolution.x, uResolution.y);
     vec3 ro = uV[0].xyz;
     vec3 rd = wRotateY(wRotateX(normalize(vec3(uv * 0.72 * lens, -1.65)), pitch), yaw);
 
@@ -977,6 +984,7 @@ void main() {
                                                    + vec3(0.0, tilt.y, 0.0));
                     }
                 } else {
+                    D.footprint = pixelAngle * travelled;
                     surface = gPictures(across, p.y, bShelvedIndex(wall, D.n, D.open), seed, style, D,
                                          here, vec3(nn.x, 0.0, nn.y), vec3(tt.x, 0.0, tt.y), P, off);
                 }

@@ -389,13 +389,38 @@ export function roomText(place) {
   return 'too far to count';
 }
 
+/**
+ * The typefaces books are set in, as CSS font stacks; some proportional, set
+ * one letter to a column, some typewriter faces. BabelTypefaces in the app.
+ */
+const TYPEFACES = [
+  'Baskerville, "Baskerville Old Face", "Libre Baskerville", Georgia, serif',
+  'Georgia, serif',
+  '"Palatino Linotype", Palatino, "Book Antiqua", serif',
+  '"Times New Roman", Times, serif',
+  'Didot, "Bodoni MT", "Times New Roman", serif',
+  '"Iowan Old Style", "Palatino Linotype", Palatino, serif',
+  'Charter, "Bitstream Charter", Georgia, serif',
+  '"Hoefler Text", Garamond, "EB Garamond", Georgia, serif',
+  'Cochin, Garamond, Georgia, serif',
+  '"Bodoni 72", "Bodoni MT", Didot, serif',
+  'italic Baskerville, "Baskerville Old Face", Georgia, serif',
+  'italic "Palatino Linotype", Palatino, "Book Antiqua", serif',
+  '600 Baskerville, "Baskerville Old Face", Georgia, serif',
+  'Optima, Candara, "Segoe UI", sans-serif',
+  '"Gill Sans", "Gill Sans MT", Calibri, sans-serif',
+  '"American Typewriter", "Courier New", Courier, monospace',
+  '300 "American Typewriter", "Courier New", Courier, monospace',
+  'Courier, monospace',
+  '"Courier New", Courier, monospace',
+  'Menlo, Monaco, Consolas, monospace',
+];
+
 /** How one book looks in the hand; drawn from the same hash as its spine. */
 export function bookLook(place) {
   if (place.design.uniform) {
-    return {
-      cover: 'rgb(92, 51, 31)', paper: 'rgb(237, 227, 204)', ink: 'rgb(20, 18, 15)',
-      font: 'Courier, monospace', weight: 400,
-    };
+    const colors = { cover: [0.36, 0.20, 0.12], paper: [0.93, 0.89, 0.80], ink: [0.08, 0.07, 0.06] };
+    return { ...css(colors), colors, typeface: 'Courier, monospace', font: 'Courier, monospace', weight: 400 };
   }
   const hash = L.bookHash(place);
   const value = 0.12 + 0.55 * L.unit(hash, 5) * L.unit(hash, 5);
@@ -403,21 +428,16 @@ export function bookLook(place) {
   const cover = hsv(L.unit(hash, 3), 0.25 + 0.65 * L.unit(hash, 4), value ** 0.45);
   const warmth = L.unit(hash, 30);
   const shade = 0.84 + 0.14 * L.unit(hash, 31);
-  const paper = rgb([shade, shade - 0.03 - 0.05 * warmth, shade - 0.06 - 0.14 * warmth]);
+  const paper = [shade, shade - 0.03 - 0.05 * warmth, shade - 0.06 - 0.14 * warmth];
   const inks = [[0.07, 0.06, 0.06], [0.20, 0.11, 0.05], [0.06, 0.10, 0.24], [0.26, 0.06, 0.08], [0.07, 0.18, 0.12]];
-  const fonts = [
-    'Menlo, Monaco, Consolas, monospace', '"Courier New", Courier, monospace', 'Courier, monospace',
-    'ui-monospace, SFMono-Regular, Consolas, monospace', 'ui-monospace, SFMono-Regular, Consolas, monospace',
-  ];
-  const weights = [300, 400, 400, 500, 600];
-  return {
-    cover,
-    paper,
-    ink: rgb(inks[Math.floor(L.unit(hash, 32) * 4.999)]),
-    font: fonts[Math.floor(L.unit(hash, 33) * 4.999)],
-    weight: weights[Math.floor(L.unit(hash, 34) * 4.999)],
-  };
+  const colors = { cover, paper, ink: inks[Math.floor(L.unit(hash, 32) * 4.999)] };
+  const typeface = TYPEFACES[Math.min(Math.floor(L.unit(hash, 33) * TYPEFACES.length), TYPEFACES.length - 1)];
+  // The font stack alone, for the title.
+  const font = typeface.replace(/^(italic |\d00 )+/, '');
+  return { ...css(colors), colors, typeface, font, weight: 400 };
 }
+
+const css = colors => ({ cover: rgb(colors.cover), paper: rgb(colors.paper), ink: rgb(colors.ink) });
 
 const rgb = c => `rgb(${c.map(v => Math.round(255 * Math.min(Math.max(v, 0), 1))).join(', ')})`;
 
@@ -426,5 +446,5 @@ function hsv(h, s, v) {
     const k = ((h + shift) % 1) * 6;
     return v * (1 - s + s * Math.min(Math.max(Math.abs(k - 3) - 1, 0), 1));
   };
-  return rgb([channel(0), channel(2 / 3), channel(1 / 3)]);
+  return [channel(0), channel(2 / 3), channel(1 / 3)];
 }
