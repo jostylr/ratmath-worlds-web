@@ -250,14 +250,15 @@ void main() {
   float length2 = dot(direction, direction);
   direction = length2 > 1e-6 ? direction / sqrt(length2) : vec2(1.0, 0.0);
   vec2 normal = vec2(-direction.y, direction.x);
-  // Widths are given for a view 900 pixels across its shorter side.
-  float width = aA.w * min(halfResolution.x, halfResolution.y) / 450.0;
+  // Widths are given for a view 900 pixels across its shorter side. The
+  // quad reaches well past the line itself, to carry its glow.
+  float width = aA.w * min(halfResolution.x, halfResolution.y) / 450.0 * 2.4;
   vec2 pixel = mix(pixelsA, pixelsB, along) + normal * side * width + direction * (along * 2.0 - 1.0) * width;
   // Segments that reach behind the camera are dropped.
   bool visible = a.z > 0.02 && b.z > 0.02;
   gl_Position = visible ? vec4(pixel / halfResolution, 0.0, 1.0) : vec4(2.0, 2.0, 2.0, 1.0);
   vColor = aColor;
-  vAcross = side;
+  vAcross = side * 2.4;
 }`;
 
 const LINE_FRAGMENT = `#version 300 es
@@ -266,8 +267,12 @@ in vec4 vColor;
 in float vAcross;
 out vec4 fragColor;
 void main() {
-  float edge = 1.0 - smoothstep(0.35, 1.0, abs(vAcross));
-  fragColor = vec4(vColor.rgb * vColor.a * edge, 1.0);
+  // The line itself, and a faint glow round it. Light adds up, so where
+  // many lines run together the glow gathers into a bright haze.
+  float away = abs(vAcross);
+  float edge = 1.0 - smoothstep(0.35, 1.0, away);
+  float glow = 0.08 * exp(-1.1 * away * away);
+  fragColor = vec4(vColor.rgb * vColor.a * (edge + glow), 1.0);
 }`;
 
 // WorldMesh.metal: triangles with a depth buffer, shaded on both faces.
@@ -382,6 +387,40 @@ const PAGE = `
   <article id="tourCard" class="panel" aria-live="polite" hidden></article>
   <p id="error" role="alert" hidden></p>`;
 
+/**
+ * The ride of a world that has none of its own: its sights, one after
+ * another and round again, each with its name for a caption.
+ */
+export function sightsRide(world, sights) {
+  return {
+    title: 'Ride',
+    note: `The ride goes on by itself: it visits the sights of this world one
+      after another, and then goes round again. Touching the picture pauses it.`,
+    settings: [
+      { key: 'pace', title: 'Pace', range: [0.5, 2], initial: 1, display: value => value.toFixed(1) + '× as fast' },
+      { key: 'pause', title: 'Pause at each sight', range: [0, 12], initial: 3, display: value => Math.round(value) + ' s' },
+    ],
+    start(seed) {
+      let index = Number.isInteger(seed) ? ((seed % sights.length) + sights.length) % sights.length : 0;
+      return {
+        next(current, settings) {
+          const sight = sights[index];
+          const place = `${index + 1} of ${sights.length}`;
+          index = (index + 1) % sights.length;
+          const pace = clamp(settings.pace ?? 1, 0.25, 4);
+          const base = copyState(world.defaults);
+          if (world.tourKeepsPalette !== false) { base.palette = current.palette; }
+          const frames = sight.build(base).map(frame => ({ ...frame, duration: frame.duration / pace, hold: frame.hold / pace }));
+          if (frames.length === 0) { return [keyframe(base, 2)]; }
+          frames[0].caption = `${sight.title} · ${place}`;
+          frames[frames.length - 1].hold += Math.max(settings.pause ?? 3, 0);
+          return frames;
+        },
+      };
+    },
+  };
+}
+
 export function start(world) {
   document.body.insertAdjacentHTML('afterbegin', PAGE);
   const $ = id => document.getElementById(id);
@@ -389,6 +428,13 @@ export function start(world) {
   canvas.setAttribute('aria-label', `Interactive ${world.title}`);
   const pitchRange = world.pitchRange ?? [-1.45, 1.45];
   const distanceRange = world.cameraDistanceRange;
+
+  /** Places worth riding to: a world's own list, or the stops of its tour
+      (all but the last, which hands the world over). */
+  const sights = world.sights
+    ?? world.tour.slice(0, -1).map((stop, index) => ({ title: stop.title, build: stop.build, tourStop: index }));
+  /** The world's own ride, or failing that a ride round its sights. */
+  const theRide = world.ride ?? (sights.length ? sightsRide(world, sights) : null);
 
   let state = copyState(world.defaults);
   /** The explorer's point in the app; there is no explorer here, but worlds
@@ -1064,7 +1110,7 @@ export function start(world) {
       <div><p class="eyebrow">${escapeHTML(world.title)}</p><h2 class="compact">${escapeHTML(world.formula)}</h2></div>
       <button id="tourStart">▶ Guided tour</button>
       <button id="sightsStart">✦ Rides and sights</button>
-      ${world.ride ? `<button id="rideStart">🎢 ${escapeHTML(world.ride.title)}</button>` : ''}
+      ${theRide ? `<button id="rideStart">🎢 ${escapeHTML(theRide.title)}</button>` : ''}
       ${world.controlGroups.map(g => section(g.title, g.note, g.controls.map(c => controlHTML(c, id++)).join(''))).join('')}
       ${section('View', world.viewNote, `
         <label class="row"><span class="title">Zoom</span><span class="value" id="zoomValue"></span>
@@ -1136,7 +1182,7 @@ export function start(world) {
     refreshExtra?.(state);
     if (ride && $('rideZoom')) {
       $('rideZoom').textContent = Format.significant(magnification(), 3) + '×';
-      $('rideWhere').textContent = world.ride.where?.(state) ?? '';
+      $('rideWhere').textContent = theRide.where?.(state) ?? '';
     }
     const panel = $('controls');
     if (panel.hidden || panel.classList.contains('touring')) { return; }
@@ -1220,10 +1266,6 @@ export function start(world) {
 
   // MARK: Welcome and sights
 
-  /** Places worth riding to: a world's own list, or the stops of its tour
-      (all but the last, which hands the world over). */
-  const sights = world.sights
-    ?? world.tour.slice(0, -1).map((stop, index) => ({ title: stop.title, build: stop.build, tourStop: index }));
   /** True while the welcome card is up. */
   let welcome = false;
   /** The sight being ridden to, while its card is up. */
@@ -1262,7 +1304,7 @@ export function start(world) {
       <div class="body"><p>${escapeHTML(world.summary ?? '')}</p></div>
       <div class="welcome-actions">
         <button id="welcomeTour" class="prominent">▶ Guided tour</button>
-        ${world.ride ? `<button id="welcomeRide">🎢 ${escapeHTML(world.ride.title)}</button>` : ''}
+        ${theRide ? `<button id="welcomeRide">🎢 ${escapeHTML(theRide.title)}</button>` : ''}
         <button id="welcomeExplore">Explore on my own</button>
       </div>
       ${sights.length ? `<p class="caption">Or ride straight to a sight:</p>
@@ -1347,7 +1389,7 @@ export function start(world) {
   const rideKey = key => `ratmath.ride.${world.id}.${key}`;
   function rideSettings() {
     const settings = {};
-    for (const setting of world.ride.settings) {
+    for (const setting of theRide.settings) {
       let value = setting.initial;
       try {
         const stored = Number(localStorage.getItem(rideKey(setting.key)));
@@ -1361,21 +1403,21 @@ export function start(world) {
   }
 
   function startRide(seed) {
-    if (!world.ride) { return; }
+    if (!theRide) { return; }
     endTour();
     endSight();
     closeWelcome(false);
-    ride = { planner: world.ride.start(seed), settings: rideSettings(), paused: false, caption: '' };
+    ride = { planner: theRide.start(seed), settings: rideSettings(), paused: false, caption: '' };
     $('tourCard').innerHTML = `
-      <header><p class="eyebrow">${escapeHTML(world.ride.title)} · ${escapeHTML(world.title)}</p>
+      <header><p class="eyebrow">${escapeHTML(theRide.title)} · ${escapeHTML(world.title)}</p>
         <button id="rideEnd" class="plain" aria-label="End ride">✕</button></header>
       <div class="body"><p id="rideCaption"></p></div>
       <div class="readout"><span id="rideWhere"></span><span id="rideZoom"></span></div>
       <details id="rideSettings"><summary class="caption">Speed and depth</summary>
-        ${world.ride.settings.map(setting => `<label class="row" data-ride="${setting.key}">
+        ${theRide.settings.map(setting => `<label class="row" data-ride="${setting.key}">
           <span class="title">${escapeHTML(setting.title)}</span><span class="value"></span>
           <input type="range" min="${setting.range[0]}" max="${setting.range[1]}" step="any" value="${ride.settings[setting.key]}"></label>`).join('')}
-        <p class="caption">${paragraphs(world.ride.note).map(escapeHTML).join(' ')}</p>
+        <p class="caption">${paragraphs(theRide.note).map(escapeHTML).join(' ')}</p>
       </details>
       <footer><button id="ridePause">⏸ Pause</button><span class="spacer"></span>
         <span id="tourSpinner" class="spinner" aria-label="Moving"></span>
@@ -1419,7 +1461,7 @@ export function start(world) {
     if (!ride) { return; }
     ride = null;
     animation = null;
-    world.ride.settle?.(state);
+    theRide.settle?.(state);
     $('tourCard').hidden = true;
     $('controls').classList.remove('touring');
     $('controlsToggle').hidden = false;
@@ -1433,14 +1475,14 @@ export function start(world) {
     $('rideCaption').textContent = ride.caption;
     $('ridePause').textContent = ride.paused ? '▶ Carry on' : '⏸ Pause';
     for (const row of $('tourCard').querySelectorAll('[data-ride]')) {
-      const setting = world.ride.settings.find(s => s.key === row.dataset.ride);
+      const setting = theRide.settings.find(s => s.key === row.dataset.ride);
       row.querySelector('.value').textContent = setting.display(ride.settings[setting.key]);
     }
   }
 
-  if (world.ride) {
+  if (theRide) {
     $('modeButtons').insertAdjacentHTML('beforeend',
-      `<button id="ridePill" class="pill">🎢 ${escapeHTML(world.ride.title)}</button>`);
+      `<button id="ridePill" class="pill">🎢 ${escapeHTML(theRide.title)}</button>`);
     $('ridePill').addEventListener('click', () => startRide());
   }
 
@@ -1473,7 +1515,7 @@ export function start(world) {
   if (location.hash.length <= 1 && query.has('tourStep')) {
     const index = Number(query.get('tourStep'));
     if (Number.isInteger(index) && index >= 0 && index < world.tour.length) { showTourStep(index); }
-  } else if (location.hash.length <= 1 && query.has('ride') && world.ride) {
+  } else if (location.hash.length <= 1 && query.has('ride') && theRide) {
     // ?ride starts the ride, and ?ride=7 always takes the same route.
     const seed = Number(query.get('ride'));
     startRide(query.get('ride') !== '' && Number.isInteger(seed) ? seed : undefined);

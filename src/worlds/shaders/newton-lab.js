@@ -234,6 +234,24 @@ float fWrap(float x, float period) {
     return x - period * floor(x / period);
 }
 
+// A colour for each place round a wheel, for pictures that tell several
+// answers apart: coral, amber and blue a third of a turn apart, with orange,
+// sea green and violet between them. They are chosen to sit well together,
+// where the plain rainbow's red, green and blue shout. Linear light.
+vec3 fTint(float hue) {
+    float h = fWrap(hue, 1.0) * 6.0;
+    vec3 coral = vec3(0.90, 0.20, 0.13);
+    vec3 orange = vec3(0.95, 0.40, 0.10);
+    vec3 amber = vec3(0.97, 0.68, 0.13);
+    vec3 green = vec3(0.16, 0.62, 0.46);
+    vec3 blue = vec3(0.14, 0.38, 0.90);
+    vec3 violet = vec3(0.52, 0.22, 0.72);
+    vec3 from = h < 1.0 ? coral : (h < 2.0 ? orange : (h < 3.0 ? amber : (h < 4.0 ? green : (h < 5.0 ? blue : violet))));
+    vec3 to = h < 1.0 ? orange : (h < 2.0 ? amber : (h < 3.0 ? green : (h < 4.0 ? blue : (h < 5.0 ? violet : coral))));
+    float t = h - floor(h);
+    return mix(from, to, t * t * (3.0 - 2.0 * t));
+}
+
 // How much of a pixel a line of half-width width covers at distance d.
 float fStroke(float d, float width, float pixel) {
     return smoothstep(width + pixel, width - 0.5 * pixel, d);
@@ -398,8 +416,7 @@ vec4 labFormula(vec2 z, int count) {
 }
 
 vec3 labTint(float hue) {
-    vec3 tint = wCosinePalette(hue, vec3(0.52), vec3(0.46), vec3(1.0), vec3(0.0, 0.33, 0.67));
-    return tint * tint * 0.8;
+    return fTint(hue);
 }
 
 vec3 labSample(vec2 uv, WorldUniforms u) {
@@ -418,10 +435,16 @@ vec3 labSample(vec2 uv, WorldUniforms u) {
         if (formula) {
             vec4 value = labFormula(z, count);
             change = labDiv(value.xy, value.zw);
-            if (dot(value.xy, value.xy) < 1e-9 || dot(change, change) < 1e-10) {
+            // Arrived: the value is nothing, or the hop is and the value
+            // nearly so (a root the function only touches). A hop of
+            // nothing from a value that is not small is no root at all:
+            // the slope has run off to infinity, and the guess is lost.
+            float size2 = dot(value.xy, value.xy);
+            if (size2 < 1e-9 || (dot(change, change) < 1e-10 && size2 < 1e-3)) {
                 steps = float(i);
                 break;
             }
+            if (!(dot(change, change) > 1e-10)) { break; }
         } else {
             // Value over slope is one over the sum of 1 ⁄ (z − root), less
             // the same for the poles.
@@ -454,9 +477,9 @@ vec3 labSample(vec2 uv, WorldUniforms u) {
     if (formula) {
         // A formula may have any number of roots: each takes its colour
         // from where it lies.
-        return labTint(0.23 * z.x + 0.37 * z.y + 0.5 * z.x * z.y + 0.02) * shade;
+        return labTint(0.23 * z.x + 0.37 * z.y + 0.5 * z.x * z.y) * shade;
     }
-    return labTint(float(found) / float(max(roots, 1)) + 0.02) * shade;
+    return labTint(float(found) / float(max(roots, 1))) * shade;
 }
 
 vec4 newtonLabFragment(vec4 inPosition, WorldUniforms u) {

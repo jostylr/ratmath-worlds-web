@@ -234,6 +234,24 @@ float fWrap(float x, float period) {
     return x - period * floor(x / period);
 }
 
+// A colour for each place round a wheel, for pictures that tell several
+// answers apart: coral, amber and blue a third of a turn apart, with orange,
+// sea green and violet between them. They are chosen to sit well together,
+// where the plain rainbow's red, green and blue shout. Linear light.
+vec3 fTint(float hue) {
+    float h = fWrap(hue, 1.0) * 6.0;
+    vec3 coral = vec3(0.90, 0.20, 0.13);
+    vec3 orange = vec3(0.95, 0.40, 0.10);
+    vec3 amber = vec3(0.97, 0.68, 0.13);
+    vec3 green = vec3(0.16, 0.62, 0.46);
+    vec3 blue = vec3(0.14, 0.38, 0.90);
+    vec3 violet = vec3(0.52, 0.22, 0.72);
+    vec3 from = h < 1.0 ? coral : (h < 2.0 ? orange : (h < 3.0 ? amber : (h < 4.0 ? green : (h < 5.0 ? blue : violet))));
+    vec3 to = h < 1.0 ? orange : (h < 2.0 ? amber : (h < 3.0 ? green : (h < 4.0 ? blue : (h < 5.0 ? violet : coral))));
+    float t = h - floor(h);
+    return mix(from, to, t * t * (3.0 - 2.0 * t));
+}
+
 // How much of a pixel a line of half-width width covers at distance d.
 float fStroke(float d, float width, float pixel) {
     return smoothstep(width + pixel, width - 0.5 * pixel, d);

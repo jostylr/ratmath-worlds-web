@@ -168,7 +168,7 @@ defaults.values[START_X + 2] = 12;
 // The two wings lie near the plane x = y; this looks at them face on.
 defaults.yaw = -0.62;
 defaults.pitch = -0.12;
-defaults.cameraDistance = 4.7;
+defaults.cameraDistance = 3.6;
 
 const isRossler = state => state.values[SYSTEM] > 0.5;
 

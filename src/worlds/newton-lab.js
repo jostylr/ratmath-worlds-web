@@ -320,7 +320,8 @@ const tour = [
       On the right the method works well and each root collects
       the guesses level with it. On the left eᶻ is nearly zero,
       the function is nearly flat at −1, and one hop from there is
-      vast: the fine bands are guesses landing who knows where.`,
+      vast: those guesses are thrown too far to come back in the
+      steps allowed, and are left black.`,
     tryIt: 'Function → Formula → eᶻ − 1',
     build: base => [keyframe(using(base, 3, 26), 2.5)],
   },
