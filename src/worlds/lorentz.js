@@ -2,7 +2,7 @@
 // colour and brightness, worked out exactly. This is
 // Worlds/Relativity/LorentzWorld.swift, without its explorer; the tour's
 // words are copied from it.
-import { newState, copyState, keyframe, slider, toggle, readout, group } from './engine.js';
+import { newState, copyState, keyframe, slider, toggle, readout, group, Format } from './engine.js';
 import { FRAGMENT } from './shaders/lorentz.js';
 
 // Indices into the state's values.
@@ -153,6 +153,69 @@ const tour = [
 
 // MARK: World
 
+// MARK: Explorer
+
+/** The angle, in the lattice, of light that is seen at angle `seen` from ahead. */
+const latticeAngle = (seen, b) => Math.acos(Math.min(Math.max((Math.cos(seen) - b) / (1 - b * Math.cos(seen)), -1), 1));
+/** How many times its frequency is multiplied. */
+const dopplerFactor = (lattice, b) => gamma(b) * (1 + b * Math.cos(lattice));
+
+/** What the explorer says about one direction of looking: LorentzWorld.report in the app. */
+function explorerReport(seenDegrees, state) {
+  const b = beta(state);
+  const g = gamma(b);
+  const rest = state.values[TEMPERATURE];
+  const rows = [];
+  for (let index = 0; index <= 12; index += 1) {
+    const seen = 15 * index;
+    const s = seen * Math.PI / 180;
+    const lattice = latticeAngle(s, b);
+    const d = dopplerFactor(lattice, b);
+    rows.push({
+      id: index,
+      cells: [`${seen}°`, degrees(lattice), d.toFixed(3), `${Math.round(rest * d)} K`],
+      workedTitle: `Seen at ${seen}°, worked`,
+      worked: [
+        ['cos θ′', Math.cos(s).toFixed(5)],
+        ['cos θ = (cos θ′ − β) ⁄ (1 − β cos θ′)', Math.cos(lattice).toFixed(5)],
+        ['θ, in the lattice', degrees(lattice)],
+        ['D = γ(1 + β cos θ)', d.toFixed(5)],
+        ['same as 1 ⁄ (γ(1 − β cos θ′))', (1 / (g * (1 - b * Math.cos(s)))).toFixed(5)],
+        [`glow, D × ${Math.trunc(rest)} K`, `${Math.round(rest * d)} K`],
+        ['brightness, D⁴', Format.significant(d ** 4, 4)],
+      ],
+      note: d > 1
+        ? 'D is more than 1: this light arrives bluer and brighter than it left.'
+        : 'D is less than 1: this light arrives redder and dimmer than it left.',
+    });
+  }
+  const s = Math.min(Math.max(seenDegrees, 0), 180) * Math.PI / 180;
+  const lattice = latticeAngle(s, b);
+  const d = dopplerFactor(lattice, b);
+  return {
+    headline: `Light seen ${Math.round(seenDegrees)}° from ahead left the lattice ${degrees(lattice)} from your direction of travel`,
+    details: [
+      `At β = ${b.toFixed(3)}, γ = ${g.toFixed(4)}.`,
+      `Its colour is multiplied by D = ${d.toFixed(4)}: a ${Math.trunc(rest)} K glow looks like ${Math.round(rest * d)} K, and ${Format.significant(d ** 4, 3)} times as bright.`,
+      `Everything the lattice sends from your side, at 90°, appears at ${degrees(Math.acos(b))} from straight ahead.`,
+    ],
+    tableTitle: 'Every 15°', columns: ['seen θ′', 'from θ', 'D', 'glow'], rows, markers: [],
+  };
+}
+
+const explorer = {
+  title: 'Angle explorer',
+  subtitle: 'Where light seen at one angle really came from',
+  buttonTitle: 'Angle explorer',
+  blurb: 'The explorer takes a direction you look in, measured from straight ahead, and works out where that light came from in the lattice, how its colour changed and how much brighter it is.',
+  pointTitle: 'Looking, from straight ahead',
+  coordinates: [{ label: 'θ′ (°)', range: [0, 180] }],
+  moveHint: 'Arrow keys change the angle.',
+  initialProbe: () => [60, 0, 0, 0],
+  report: (probe, state) => explorerReport(probe[0], state),
+  move: (probe, right, up) => [Math.min(Math.max(probe[0] + 2 * (right + up), 0), 180), 0, 0, 0],
+};
+
 export const world = {
   id: 'lorentz',
   title: 'Near the speed of light',
@@ -204,6 +267,7 @@ export const world = {
     shape can be followed; the light is drawn as it would arrive at the
     speed set above.`,
   tour,
+  explorer,
   shaderValues(state) {
     const values = new Array(32).fill(0);
     values[0] = beta(state);

@@ -440,6 +440,57 @@ const tour = [
 
 // MARK: World
 
+// MARK: Explorer
+
+const subscript = n => [...String(n)].map(c => '₀₁₂₃₄₅₆₇₈₉'[c] ?? c).join('');
+
+/** What the explorer says about the picture on screen: KnotWorld.report in the app. */
+function explorerReport(state) {
+  const d = picture(state);
+  const det = determinant(d);
+  const rows = d.crossings.map((crossing, i) => {
+    const arc = d.arcs[i];
+    return {
+      id: i,
+      cells: [String(i + 1), String(arc.over + 1), `${arc.into + 1} → ${arc.out + 1}`, crossing.sign > 0 ? '+1' : '−1'],
+      workedTitle: `Crossing ${i + 1}, worked`,
+      worked: [
+        ['arc on top', String(arc.over + 1)],
+        ['arcs underneath', `${arc.into + 1} in, ${arc.out + 1} out`],
+        ['equation', `2·x${subscript(arc.over + 1)} − x${subscript(arc.into + 1)} − x${subscript(arc.out + 1)} = 0`],
+        ['handedness', crossing.sign > 0 ? 'right-handed, +1' : 'left-handed, −1'],
+      ],
+      note: 'Each crossing gives one equation. Together they say which ways of numbering the arcs are consistent, and the determinant counts them.',
+    };
+  });
+  const knot = PRESETS[preset(state)];
+  return {
+    headline: `${knot.name}: determinant ${det}`,
+    details: [
+      `This picture has ${d.crossings.length} crossings and ${d.arcCount} arcs; the fewest any picture of the ${knot.name.toLowerCase()} can have is ${knot.crossingNumber}.`,
+      `Determinant ${det}: ${det === 1 ? 'the same as the unknot\'s, which does not prove this is the unknot, but cannot tell it apart' : 'not 1, so this cannot be the unknot'}.`,
+      det % 3 === 0
+        ? `3 divides ${det}, so the arcs can be painted with three colours by the rule. Choose Three colours to see it.`
+        : `3 does not divide ${det}, so no painting with three colours follows the rule.`,
+    ],
+    tableTitle: d.crossings.length ? 'Crossings in this picture' : '',
+    columns: d.crossings.length ? ['', 'top', 'under', 'sign'] : [],
+    rows, markers: [],
+  };
+}
+
+const explorer = {
+  title: 'Crossing explorer',
+  subtitle: 'The picture\'s crossings, and the determinant',
+  buttonTitle: 'Crossing explorer',
+  blurb: 'The explorer lists the crossings of the picture on screen: which arc is on top and which two meet underneath, the equation each gives, and the determinant they make.',
+  pointTitle: '',
+  coordinates: [],
+  moveHint: '',
+  initialProbe: () => [0, 0, 0, 0],
+  report: (probe, state) => explorerReport(state),
+};
+
 export const world = {
   id: 'knots',
   title: 'Knots',
@@ -495,6 +546,7 @@ export const world = {
     in a rainbow from start to finish; Three colours paints the arcs of
     this picture with a three-colouring, when there is one.`,
   tour,
+  explorer,
   shaderValues(state) {
     const values = new Array(32).fill(0);
     values[3] = state.palette === 1 ? 2 : 1;
