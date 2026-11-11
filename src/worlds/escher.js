@@ -486,6 +486,89 @@ const tour = [
   },
 ];
 
+// MARK: Explorer
+
+/** The turn a door gives to directions in the space itself, as its three
+    columns: where it sends x, y and z. */
+function doorMatrix(c, m, side) {
+  const target = partner(c, m, side);
+  if (!target) { return null; }
+  const image = v => {
+    // Into the door's landing's axes, through the door, and out again.
+    let local = v;
+    for (let i = 0; i < (3 - c) % 3; i += 1) { local = chartDirection(local, 1); }
+    local = turn(local, -m);
+    const turned = doorTurn(local, m, side, target.side);
+    return chartDirection(turn(turned, m + target.landingShift), target.chart);
+  };
+  return [image([1, 0, 0]), image([0, 1, 0]), image([0, 0, 1])];
+}
+
+/** What the explorer says about the doors passed: EscherWorld.report in the app. */
+function explorerReport(state) {
+  const passed = Math.trunc(state.values[COUNT]);
+  const codes = [0, 1, 2, 3, 4, 5].map(i => Math.round(state.values[HISTORY + i])).filter(code => code >= 0);
+  const whole = value => String(Math.round(value)).padStart(2, ' ');
+  const rowText = (matrix, row) => matrix.map(column => whole(column[row])).join('  ');
+  const rows = [];
+  codes.forEach((code, offset) => {
+    const c = code % 3;
+    const sideThen = Math.floor(code / 3) % 2;
+    const m = Math.floor(code / 6);
+    const target = partner(c, m, sideThen);
+    const matrix = doorMatrix(c, m, sideThen);
+    if (!target || !matrix) { return; }
+    const from = 2 * c + sideThen;
+    const to = 2 * target.chart + target.side;
+    const upBefore = chartDirection([0, sideThen === 0 ? 1 : -1, 0], c);
+    const upAfter = chartDirection([0, target.side === 0 ? 1 : -1, 0], target.chart);
+    const heading = chartDirection(turn([0, 0, 1], m), c);
+    const out = [0, 1, 2].map(row => matrix[0][row] * heading[0] + matrix[1][row] * heading[1] + matrix[2][row] * heading[2]);
+    const number = passed - offset;
+    rows.push({
+      id: number,
+      cells: [String(number), `${REALM_NAMES[from]} → ${REALM_NAMES[to]}`, axisName(upAfter)],
+      workedTitle: `Door ${number}, worked`,
+      worked: [
+        ['the door\'s turn, D', rowText(matrix, 0)],
+        ['', rowText(matrix, 1)],
+        ['', rowText(matrix, 2)],
+        ['up before', axisName(upBefore)],
+        ['roll in the doorway', m === 0 ? '180°' : '90°'],
+        ['up after', axisName(upAfter)],
+        ['you walk out heading', axisName(out)],
+      ],
+      note: 'Each column of D says where the door sends one of the three directions of space. A door takes the way you walk in to the way you walk out of its partner. It does not take your old up to your new up: the roll you make in the doorway makes up that difference, and is what you feel as the world turning.',
+    });
+  });
+  rows.reverse();
+  const details = ['The directions x, y and z belong to the space, and never change. Each of the six realms calls a different one of ±x, ±y, ±z up.'];
+  if (passed === 0) {
+    details.push('Walk through a door and it will be listed here with its turn.');
+  } else if (passed > rows.length) {
+    details.push(`Only the last ${rows.length} doors are listed.`);
+  }
+  return {
+    headline: `You stand on ${REALM_NAMES[realm(state)].toLowerCase()}, and your up is ${upName(state)}`,
+    details,
+    tableTitle: rows.length ? 'Doors, in the order you took them' : '',
+    columns: rows.length ? ['', 'door', 'up after'] : [],
+    rows, markers: [],
+  };
+}
+
+const explorer = {
+  title: 'Turn explorer',
+  subtitle: 'What each door did to your up',
+  buttonTitle: 'Turn explorer',
+  blurb: 'The explorer lists the doors you have passed, writes each one\'s turn as a matrix, and shows what it did to your idea of up.',
+  pointTitle: '',
+  coordinates: [],
+  moveHint: '',
+  initialProbe: () => [0, 0, 0, 0],
+  report: (probe, state) => explorerReport(state),
+};
+
 export const world = {
   id: 'escher',
   title: 'Escher stairs',
@@ -561,6 +644,7 @@ export const world = {
     Zoom narrows the view like a longer lens; it does not move you.
     Reset view returns you to the wooden stairs where you began.`,
   tour,
+  explorer,
   shaderValues(state) {
     // The zoom, then the camera's right, up, forward and position.
     const c = camera(state);
