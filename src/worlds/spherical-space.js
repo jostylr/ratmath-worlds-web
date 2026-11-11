@@ -191,6 +191,105 @@ const tour = [
 
 // MARK: World
 
+// MARK: Explorer
+
+/** The four mirrors of the symmetry group H4: unit normals whose angles are
+    π ⁄ 5, π ⁄ 3 and π ⁄ 3 along the chain, and right angles otherwise. */
+const MIRRORS = [
+  [1, 0, 0, 0],
+  [-0.809016994374947, 0.587785252292473, 0, 0],
+  [0, -0.850650808352040, 0.525731112119134, 0],
+  [0, 0, -0.951056516295154, 0.309016994374947],
+];
+const angle4 = (a, b) => Math.acos(Math.min(Math.max(dot4(a, b), -1), 1));
+
+/** The middles of all 120 rooms: every image of home in the mirrors. Worked
+    out the first time it is asked for. */
+let roomMiddles = null;
+function rooms() {
+  if (roomMiddles) { return roomMiddles; }
+  const found = [HOME];
+  let frontier = [HOME];
+  const known = q => found.some(p => Math.hypot(q[0] - p[0], q[1] - p[1], q[2] - p[2], q[3] - p[3]) < 1e-6);
+  while (frontier.length) {
+    const next = [];
+    for (const p of frontier) {
+      for (const n of MIRRORS) {
+        const along = 2 * dot4(p, n);
+        const q = p.map((c, i) => c - along * n[i]);
+        if (!known(q)) {
+          found.push(q);
+          next.push(q);
+        }
+      }
+    }
+    frontier = next;
+  }
+  roomMiddles = found;
+  return found;
+}
+
+/** What the explorer says about the rooms and where you are: SphericalSpaceWorld.report in the app. */
+function explorerReport(state) {
+  const layers = [];
+  for (const c of rooms()) {
+    const a = angle4(c, HOME);
+    const layer = layers.find(one => Math.abs(one.angle - a) < 1e-6);
+    if (layer) { layer.count += 1; } else { layers.push({ angle: a, count: 1 }); }
+  }
+  layers.sort((a, b) => a.angle - b.angle);
+  let total = 0;
+  const rows = layers.map((layer, i) => {
+    total += layer.count;
+    // The volume of a ball of radius r in this space: π(2r − sin 2r).
+    const r = layer.angle;
+    return {
+      id: i,
+      cells: [String(i), degrees(r), String(layer.count), String(total)],
+      workedTitle: `Layer ${i}, worked`,
+      worked: [
+        ['distance of the middles', `${r.toFixed(5)} rad`],
+        ['as a fraction of a half-turn', `${(r / Math.PI).toFixed(3)} π`],
+        ['rooms in this layer', String(layer.count)],
+        ['rooms so far', `${total} of 120`],
+        ['volume within that distance, π(2r − sin 2r)', (Math.PI * (2 * r - Math.sin(2 * r))).toFixed(4)],
+        ['in flat space, 4⁄3 πr³', (4 / 3 * Math.PI * r ** 3).toFixed(4)],
+      ],
+      note: i === 0 ? 'Home.' : (r > Math.PI / 2 + 1e-9
+        ? 'Past a quarter-turn the layers shrink again, as circles of latitude do past the equator.'
+        : 'Each room\'s middle is 36° from its neighbours\', so ten rooms fit round any great circle.'),
+    };
+  });
+  // The room you are in: the one whose middle is nearest.
+  const here = frame(state).position;
+  let nearest = HOME;
+  let best = -2;
+  for (const c of rooms()) {
+    const d = dot4(here, c);
+    if (d > best) { best = d; nearest = c; }
+  }
+  return {
+    headline: `You are ${degrees(distanceFromHome(state))} from home, in a room whose middle is ${degrees(angle4(nearest, HOME))} from home`,
+    details: [
+      'The whole space has volume 2π² ≈ 19.74; each room has a 120th of it, about 0.1645.',
+      'A flat ball of radius π would have volume about 129.9. This space holds only 19.74 within the same distance: room grows slower than in flat space, the opposite of the hyperbolic room.',
+    ],
+    tableTitle: 'Layers of rooms, from home', columns: ['', 'distance', 'rooms', 'so far'], rows, markers: [],
+  };
+}
+
+const explorer = {
+  title: 'Room explorer',
+  subtitle: 'The 120 rooms, layer by layer',
+  buttonTitle: 'Room explorer',
+  blurb: 'The explorer lists the rooms by their distance from home, works out where you are, and compares the space with flat space.',
+  pointTitle: '',
+  coordinates: [],
+  moveHint: '',
+  initialProbe: () => [0, 0, 0, 0],
+  report: (probe, state) => explorerReport(state),
+};
+
 export const world = {
   id: 'spherical-space',
   title: 'Spherical space',
@@ -246,6 +345,7 @@ export const world = {
     Zoom narrows the view like a longer lens. Reset view returns you to
     the middle of the home room.`,
   tour,
+  explorer,
   shaderValues(state) {
     const f = frame(state);
     const values = new Array(32).fill(0);

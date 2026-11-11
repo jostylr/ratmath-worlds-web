@@ -312,6 +312,62 @@ const tour = [
 
 // MARK: World
 
+// MARK: Explorer
+
+/** What the explorer says about the walk as it is set: GeodesicWorld.report in the app. */
+function explorerReport(state) {
+  const s = kind(state);
+  const p = paths(state);
+  const separation = index => (index < p.main.length && index < p.twin.length
+    ? Math.hypot(...sub(p.main[index], p.twin[index])) : null);
+  const rows = [];
+  // Points are a hundredth apart: every fiftieth is half a unit.
+  for (let index = 0; index < p.main.length && rows.length < 81; index += 50) {
+    const x = p.main[index];
+    const gap = separation(index);
+    const k = curvature(x, s);
+    const travelled = index * 0.01;
+    rows.push({
+      id: rows.length,
+      cells: [travelled.toFixed(1), `(${x.map(c => c.toFixed(2)).join(', ')})`, k.toFixed(3), gap === null ? '—' : gap.toFixed(3)],
+      workedTitle: `After ${travelled.toFixed(1)} units`,
+      worked: [
+        ['place', `(${x.map(c => c.toFixed(5)).join(', ')})`],
+        ['on the surface, F(x)', value(x, s).toExponential(2)],
+        ['curvature K', k.toFixed(5)],
+        ['gap to the second walker', gap === null ? 'no second walker' : gap.toFixed(5)],
+      ],
+      note: k > 0
+        ? 'K > 0 here: nearby straight paths bend toward each other.'
+        : (k < 0 ? 'K < 0 here: nearby straight paths bend away from each other.' : 'K = 0 here: nearby paths neither close in nor spread, for the moment.'),
+    });
+  }
+  const details = [`The walk is ${((p.main.length - 1) * 0.01).toFixed(2)} units long, in ${Math.max(p.main.length - 1, 0)} steps of a hundredth.`];
+  if (p.main.length) {
+    details.push(`It ends ${Math.hypot(...sub(p.main[p.main.length - 1], p.main[0])).toFixed(4)} from where it began.`);
+  }
+  if (p.twin.length && separation(0) !== null) {
+    const end = separation(Math.min(p.main.length, p.twin.length) - 1) ?? separation(0);
+    details.push(`The walkers began ${separation(0).toFixed(3)} apart and end ${end.toFixed(3)} apart.`);
+  }
+  return {
+    headline: `A straight walk on the ${['sphere', 'torus', 'saddle'][s]}`,
+    details, tableTitle: 'Every half unit', columns: ['walked', 'place', 'K', 'gap'], rows, markers: [],
+  };
+}
+
+const explorer = {
+  title: 'Walk explorer',
+  subtitle: 'One straight walk, step by step',
+  buttonTitle: 'Walk explorer',
+  blurb: 'The explorer follows the walk: where it is after each half unit, the curvature underfoot, and how far the second walker is from it.',
+  pointTitle: '',
+  coordinates: [],
+  moveHint: '',
+  initialProbe: () => [0, 0, 0, 0],
+  report: (probe, state) => explorerReport(state),
+};
+
 export const world = {
   id: 'geodesics',
   title: 'Geodesics',
@@ -384,6 +440,7 @@ export const world = {
   viewNote: `
     Drag to turn the surface and pinch to zoom.`,
   tour,
+  explorer,
   shaderValues(state) {
     const values = new Array(32).fill(0);
     values[0] = kind(state);
