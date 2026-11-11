@@ -407,6 +407,150 @@ const tour = [
 
 // MARK: World
 
+// MARK: Explorer
+
+/** Reflects a point into the triangle beside the centre, recording each
+    mirror used (A the axis, B the spoke, C the tile's edge). The shader does
+    the same for every pixel. */
+function fold(t, start, limit = 200) {
+  let z = [start[0], start[1]];
+  const path = [];
+  for (let i = 0; i < limit; i += 1) {
+    let moved = false;
+    if (z[1] < 0) {
+      z = [z[0], -z[1]];
+      path.push({ mirror: 'A', point: z });
+      moved = true;
+    }
+    const side = z[0] * t.mirrorNormal[0] + z[1] * t.mirrorNormal[1];
+    if (side > 0) {
+      z = [z[0] - 2 * side * t.mirrorNormal[0], z[1] - 2 * side * t.mirrorNormal[1]];
+      path.push({ mirror: 'B', point: z });
+      moved = true;
+    }
+    const d = Hyp.sub(z, t.edgeCenter);
+    const d2 = Hyp.lengthSquared(d);
+    if (d2 < t.edgeRadius * t.edgeRadius) {
+      z = Hyp.add(t.edgeCenter, Hyp.scale(d, t.edgeRadius * t.edgeRadius / d2));
+      path.push({ mirror: 'C', point: z });
+      moved = true;
+    }
+    if (!moved || path.length >= limit) { break; }
+  }
+  return { path, end: z };
+}
+
+/** What the explorer measures from you to a point: HyperbolicPlaneWorld.report in the app. */
+function explorerReport(point, state, row) {
+  const f = frame(state);
+  const t = tiling(state);
+  const you = f.a;
+  const n = (value, digits = 4) => Format.number(value, digits);
+  const pair = z => `(${n(z[0])}, ${n(z[1])})`;
+
+  // 1. Distance.
+  const difference = Hyp.sub(point, you);
+  const denominator = Hyp.sub(Hyp.ONE, Hyp.mul(Hyp.conj(you), point));
+  const moved = Hyp.div(difference, denominator);
+  const size = Hyp.length(moved);
+  const distance = 2 * Math.atanh(Math.min(size, 1 - 1e-15));
+  const flat = Hyp.length(difference);
+  // 2. Circle.
+  const circumference = 2 * Math.PI * Math.sinh(distance);
+  const area = 2 * Math.PI * (Math.cosh(distance) - 1);
+  // 3. Parallels to the red line (the horizontal diameter).
+  const height = Math.asinh(2 * Math.abs(point[1]) / Math.max(1 - Hyp.lengthSquared(point), 1e-12));
+  const parallelism = 2 * Math.atan(Math.exp(-height));
+  const fan = Math.PI - 2 * parallelism;
+  // 4. Folding into the central triangle.
+  const folded = fold(t, point);
+  const crossings = folded.path.filter(stop => stop.mirror === 'C').length;
+  const sequence = folded.path.slice(0, 24).map(stop => stop.mirror).join(' ') + (folded.path.length > 24 ? ' …' : '');
+
+  const rows = [
+    {
+      id: 1, cells: ['1', 'distance from you', n(distance, 3)], workedTitle: 'Distance, worked',
+      worked: [
+        ['you, a', pair(you)], ['point, P', pair(point)], ['P − a', pair(difference)], ['1 − ā·P', pair(denominator)],
+        ['w = (P − a) ⁄ (1 − āP)', pair(moved)], ['|w|', n(size)], ['d = 2 artanh |w|', n(distance)], ['flat ruler, |P − a|', n(flat)],
+      ],
+      note: 'Points are complex numbers and ā is the mirror image of a. Dividing by 1 − āP is the hyperbolic way of subtracting: it slides the whole plane so that you sit at the centre, and from the centre true distance is 2 artanh of the radius. Near the edge of the disk a tiny step on the map is a long walk.',
+    },
+    {
+      id: 2, cells: ['2', 'circle through P', n(circumference, 2)], workedTitle: 'Circle of radius d, worked',
+      worked: [
+        ['radius, d', n(distance)], ['around: 2π sinh d', n(circumference, 3)], ['flat circle: 2πd', n(2 * Math.PI * distance, 3)],
+        ['ratio', n(distance > 1e-9 ? Math.sinh(distance) / distance : 1, 3)],
+        ['area: 2π(cosh d − 1)', n(area, 3)], ['flat area: πd²', n(Math.PI * distance * distance, 3)],
+      ],
+      note: 'sinh d grows like e^d ⁄ 2, so circles here are far longer than flat circles of the same radius. Each extra unit of radius multiplies the room available by about 2.7. That is why so many tiles fit near the edge.',
+    },
+    {
+      id: 3, cells: ['3', 'fan of parallels', Format.degrees(fan, 1)], workedTitle: 'Parallels to the red line, worked',
+      worked: [
+        ['sinh h = 2|y| ⁄ (1 − |P|²)', n(Math.sinh(height))], ['height above line, h', n(height)], ['e^(−h)', n(Math.exp(-height))],
+        ['Π = 2 arctan e^(−h)', Format.degrees(parallelism)], ['fan = 180° − 2Π', Format.degrees(fan)],
+      ],
+      note: 'Π is the angle of parallelism: a line through P that leans less than Π from the perpendicular meets the red line; any other misses it. In a flat plane Π is always 90° and the fan is empty, leaving one parallel. Here the fan opens as P moves away from the line. Yellow lines miss the red line, blue ones cross it, and the orange pair are the limits.',
+    },
+    {
+      id: 4, cells: ['4', 'reflections to fold', String(folded.path.length)], workedTitle: 'Finding P\'s tile, worked',
+      worked: [
+        ['reflections', String(folded.path.length)], ['mirrors used', sequence || 'none'],
+        ['edges crossed (C)', String(crossings)], ['lands at', pair(folded.end)],
+      ],
+      note: 'This is how every pixel is coloured. The small triangle beside the centre has three sides: A, the horizontal line; B, the line at 180° ⁄ p to it; and C, the edge of the central tile. The point is reflected in whichever side it is on the wrong side of, again and again, until it lies inside the triangle. The dots show each stop. An odd or even number of reflections picks the shade, and the number of C reflections picks the hue.',
+    },
+  ];
+
+  const selected = clamp(row, 1, 4);
+  const markers = constructionMarkers(selected === 4 ? 0 : selected, point, state);
+  if (selected === 4) {
+    const count = folded.path.length;
+    folded.path.forEach((stop, index) => {
+      const mix = (index + 1) / Math.max(count, 1);
+      markers.push(dot(stop.point, f, state, CYAN.map((c, i) => c + ([1.0, 0.3, 0.65][i] - c) * mix), 0.012));
+    });
+    markers.push(dot(point, f, state, WHITE));
+  }
+  return {
+    headline: `P is ${n(distance, 3)} from you`,
+    details: [
+      `That is the true distance, in units where the plane's curvature is −1. A flat ruler laid on the map would read ${n(flat, 3)}.`,
+      `The tiling is {${t.p}, ${t.q}}; one tile side is ${n(t.sideLength, 3)} long.`,
+    ],
+    tableTitle: 'Measurements', columns: ['', 'quantity', 'value'], rows, markers,
+  };
+}
+
+const explorer = {
+  title: 'Measuring explorer',
+  subtitle: 'Distances, circles and parallels, worked out',
+  buttonTitle: 'Measuring explorer',
+  blurb: 'The explorer measures from you to a point: the true distance, the circle through it, the parallels through it, and how the picture finds its tile.',
+  pointTitle: 'Point P (white), in plane coordinates',
+  coordinates: [{ label: 'x', range: [-0.97, 0.97] }, { label: 'y', range: [-0.97, 0.97] }],
+  moveHint: 'Arrow keys move the point across the view. Click or tap anywhere in the disk to put it there. Drag to walk: the point stays where it is in the plane, and its distance from you changes.',
+  initialProbe(state) {
+    // Start a little up and to the right of the viewer.
+    const point = frame(state).apply([0.46, 0.30]);
+    return [point[0], point[1], 0, 0];
+  },
+  report: (probe, state, row) => explorerReport(Hyp.clamped([probe[0], probe[1]]), state, row),
+  move(probe, right, up, away, state) {
+    const f = frame(state);
+    const inView = f.inverse(Hyp.clamped([probe[0], probe[1]]));
+    const point = f.apply(Hyp.clamped([inView[0] + right * 0.025, inView[1] + up * 0.025], 0.985));
+    return [point[0], point[1], 0, 0];
+  },
+  pick(viewPoint, state) {
+    const w = [viewPoint[0] / (DISK_RADIUS * zoom(state)), viewPoint[1] / (DISK_RADIUS * zoom(state))];
+    if (!(Math.hypot(w[0], w[1]) < 0.995)) { return null; }
+    const point = frame(state).apply(undrawn(w, state));
+    return [point[0], point[1], 0, 0];
+  },
+};
+
 export const world = {
   id: 'hyperbolic-plane',
   title: 'Hyperbolic plane',
@@ -478,6 +622,7 @@ export const world = {
     bring anything nearer. To reach the tiles near the edge, walk to
     them.`,
   tour,
+  explorer,
   shaderValues(state) {
     const t = tiling(state);
     const f = frame(state);
