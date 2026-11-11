@@ -311,17 +311,20 @@ vec2 bStoneTilt(vec2 p) {
 // MARK: Lettering
 
 // The table (shaderData) starts with a font of 96 glyphs, characters 32 to
-// 126, eight dots by twelve; then two entries for each book of this room:
+// 126, sixteen dots by twenty-four, one row of sixteen bits to a number and
+// so six entries to a glyph; then two entries for each book of this room:
 // the length of its first word (0 if not yet known, -1 if it has none),
 // then the letters, three to a number, seven bits each.
-#define B_GLYPHS 96
+#define B_GLYPH_ROWS 6
+#define B_FONT 576
 
 float bGlyphDot(BabelDesign D, int code, int col, int row) {
-    if (col < 0 || col > 7 || row < 0 || row > 11) { return 0.0; }
-    vec4 rows = bTable(D, code);
-    float triple = row < 3 ? rows.x : (row < 6 ? rows.y : (row < 9 ? rows.z : rows.w));
+    if (col < 0 || col > 15 || row < 0 || row > 23) { return 0.0; }
+    vec4 rows = bTable(D, code * B_GLYPH_ROWS + row / 4);
+    int r = row % 4;
+    float triple = r == 0 ? rows.x : (r == 1 ? rows.y : (r == 2 ? rows.z : rows.w));
     uint bits = uint(triple + 0.5);
-    return float((bits >> uint((row % 3) * 8 + col)) & 1u);
+    return float((bits >> uint(col)) & 1u);
 }
 
 // How much of a point in a glyph is ink. g is in dots, (0, 0) at the top
@@ -337,9 +340,9 @@ float bGlyph(BabelDesign D, int code, vec2 g, float blur) {
     float c = bGlyphDot(D, code, x, y + 1);
     float d = bGlyphDot(D, code, x + 1, y + 1);
     float v = mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
-    float w = clamp(0.12 + 0.6 * blur, 0.12, 0.5);
+    float w = clamp(0.15 + 0.5 * blur, 0.15, 0.5);
     // Too small to make out: just the tone of the lettering.
-    return mix(smoothstep(0.5 - w, 0.5 + w, v), 0.3, clamp(blur - 0.7, 0.0, 1.0));
+    return mix(smoothstep(0.5 - w, 0.5 + w, v), 0.3, clamp(0.5 * blur - 0.7, 0.0, 1.0));
 }
 
 // The ink of a book's first word, run down its spine as on most shelves:
@@ -348,10 +351,10 @@ float bGlyph(BabelDesign D, int code, vec2 g, float blur) {
 // spine's in metres. Returns the ink, and in y whether the point lies in the
 // band the title takes up.
 vec2 bSpineWord(BabelDesign D, int slot, float aa, float bb, float width, float length) {
-    vec4 head = bTable(D, B_GLYPHS + 2 * slot);
+    vec4 head = bTable(D, B_FONT + 2 * slot);
     int count = int(head.x + 0.5);
     if (count <= 0) { return vec2(0.0); }
-    vec4 rest = bTable(D, B_GLYPHS + 2 * slot + 1);
+    vec4 rest = bTable(D, B_FONT + 2 * slot + 1);
     float glyphHeight = min(0.55 * width, 0.5 * length / (float(count) * 0.62));
     float advance = glyphHeight * 0.62;
     // bb is measured up from the shelf; the word starts at the top.
@@ -364,9 +367,9 @@ vec2 bSpineWord(BabelDesign D, int slot, float aa, float bb, float width, float 
         : (k < 12 ? rest.x : (k < 15 ? rest.y : rest.z))));
     int shift = 7 * (k % 3);
     int code = int((uint(triple + 0.5) >> uint(shift)) & 127u);
-    float cell = glyphHeight / 12.0;
-    vec2 g = vec2((along - float(k) * advance) / cell - (0.62 * 12.0 - 8.0) * 0.5,
-                      5.0 - across / cell);
+    float cell = glyphHeight / 24.0;
+    vec2 g = vec2((along - float(k) * advance) / cell - (0.62 * 24.0 - 16.0) * 0.5,
+                      10.0 - across / cell);
     return vec2(bGlyph(D, code, g, D.footprint / cell), band);
 }
 
@@ -424,29 +427,84 @@ BabelSurface bShelves(
     float aa = (a - start) / thickness;
     float bb = above / (height * opening);
 
-    if (exists && aa > 0.0 && aa < 1.0 && bb < 1.0) {
+    float bookWidth = thickness * pitch;
+    float bookLength = height * opening;
+    // The corners at the head are rounded, so the books are not cut-out blocks.
+    float corner = 0.22 * bookWidth;
+    vec2 fromHead = vec2(min(aa, 1.0 - aa) * bookWidth, (1.0 - bb) * bookLength);
+    bool clipped = fromHead.x < corner && fromHead.y < corner && length(vec2(corner) - fromHead) > corner;
+
+    if (exists && aa > 0.0 && aa < 1.0 && bb < 1.0 && !clipped) {
+        // Bound in leather, in cloth, or in pale vellum.
+        float material = D.plain ? 0.2 : bUnit(bh, 10u);
+        bool leather = material < 0.5;
+        bool cloth = material >= 0.5 && material < 0.8;
         vec3 cover = D.plain
             ? vec3(0.17, 0.09, 0.05)
             : bHSV(bUnit(bh, 3u), 0.25 + 0.65 * bUnit(bh, 4u),
                    0.12 + 0.55 * bUnit(bh, 5u) * bUnit(bh, 5u));
+        if (!leather && !cloth) { cover = vec3(0.80, 0.73, 0.56) * (0.60 + 0.30 * bUnit(bh, 11u)); }
         float bands = D.plain ? 0.6 : bUnit(bh, 6u);
         float label = D.plain ? 0.2 : bUnit(bh, 7u);
         vec3 gold = vec3(0.80, 0.62, 0.26);
 
-        vec3 albedo = cover * (0.72 + 0.28 * smoothstep(0.0, 0.18, min(aa, 1.0 - aa)));
-        float gloss = 0.1 + 0.5 * bUnit(bh, 8u);
-        if (bands > 0.45) {
-            bool band = (bb > 0.10 && bb < 0.125) || (bb > 0.875 && bb < 0.90);
-            if (bands > 0.75) { band = band || (bb > 0.20 && bb < 0.212) || (bb > 0.79 && bb < 0.802); }
-            if (band) { albedo = gold; gloss = 0.9; }
+        // The spine is rounded: darker as it turns away at the sides.
+        float side = (aa - 0.5) * 2.0;
+        float curve = sqrt(max(1.0 - 0.85 * side * side, 0.0));
+        vec3 albedo = cover * (0.50 + 0.50 * curve);
+        float gloss = leather ? 0.25 + 0.35 * bUnit(bh, 8u) : (cloth ? 0.04 : 0.30);
+
+        // The surface, in metres along the spine, and how much of its fine
+        // detail a pixel can show.
+        vec2 sp = vec2(aa * bookWidth, bb * bookLength) + vec2(float(vol) * 1.7, float(shelf) * 3.1);
+        float fine = clamp(1.0 - D.footprint / 0.0025, 0.0, 1.0);
+        float rib = 0.0;
+        if (leather) {
+            // Pebbled grain, darker creases, and paler rubbing near the edges.
+            float grain = bNoise(sp * 900.0);
+            float crease = bFbm(sp * 140.0);
+            albedo *= mix(1.0, 0.80 + 0.36 * grain, fine) * (0.82 + 0.34 * crease);
+            float rubbed = smoothstep(0.55, 0.85, abs(side)) * smoothstep(0.45, 0.75, bFbm(sp * 60.0 + 3.0));
+            albedo = mix(albedo, cover * 1.45 + 0.04, 0.45 * rubbed);
+            if (bands > 0.45) {
+                // Raised bands across the spine, over the cords it was sewn on.
+                for (int i = 0; i < 4; ++i) {
+                    float at = i == 0 ? 0.12 : (i == 1 ? 0.88 : (i == 2 ? 0.21 : 0.79));
+                    if (i >= 2 && bands < 0.72) { break; }
+                    float d = (bb - at) * bookLength / 0.0038;
+                    if (abs(d) < 1.0) {
+                        rib = d * 0.9;
+                        albedo *= 1.12 - 0.25 * abs(d);
+                    } else if (bands > 0.82 && abs(d) < 1.45) {
+                        albedo = gold;
+                        gloss = 0.9;
+                    }
+                }
+            }
+        } else if (cloth) {
+            // A weave of threads, too fine to see from across the room.
+            vec2 threads = sp / 0.0011;
+            float weave = 0.5 + 0.5 * sin(threads.x * 6.2832) * sin(threads.y * 6.2832);
+            float closeUp = clamp(1.0 - D.footprint / 0.0009, 0.0, 1.0);
+            albedo *= mix(1.0, 0.86 + 0.24 * weave, closeUp) * (0.90 + 0.2 * bFbm(sp * 70.0));
+            if (bands > 0.45) {
+                bool band = (bb > 0.10 && bb < 0.125) || (bb > 0.875 && bb < 0.90);
+                if (bands > 0.75) { band = band || (bb > 0.20 && bb < 0.212) || (bb > 0.79 && bb < 0.802); }
+                if (band) { albedo = gold; gloss = 0.9; }
+            }
+        } else {
+            // Vellum: smooth, with blotches where it has yellowed.
+            albedo *= 0.88 + 0.18 * bFbm(sp * 45.0);
         }
-        vec2 word = here ? bSpineWord(D, slot, aa, bb, thickness * pitch, height * opening) : vec2(0.0);
-        float lettered = here ? bTable(D, B_GLYPHS + 2 * slot).x : 0.0;
+
+        vec2 word = here ? bSpineWord(D, slot, aa, bb, bookWidth, bookLength) : vec2(0.0);
+        float lettered = here ? bTable(D, B_FONT + 2 * slot).x : 0.0;
         if (lettered != 0.0) {
-            // The first word, on a label or straight on the leather.
-            vec3 ink = gold;
+            // The first word, on a label or straight on the binding: gilt,
+            // or brown ink on vellum.
+            vec3 ink = (!leather && !cloth) ? vec3(0.16, 0.10, 0.06) : gold;
             if (label > 0.35 && word.y > 0.5 && aa > 0.10 && aa < 0.90) {
-                albedo = label > 0.7 ? vec3(0.74, 0.68, 0.54) : cover * 0.45;
+                albedo = (label > 0.7 ? vec3(0.74, 0.68, 0.54) : cover * 0.45) * (0.55 + 0.45 * curve);
                 ink = label > 0.7 ? vec3(0.10, 0.07, 0.05) : gold;
                 gloss = 0.1;
             }
@@ -462,15 +520,19 @@ BabelSurface bShelves(
             albedo = mark ? ink : paper;
             gloss = 0.1;
         }
+        // Worn at the head and the foot.
+        float toEnd = min(bb, 1.0 - bb) * bookLength;
+        albedo *= 0.72 + 0.28 * smoothstep(0.0, 0.007, toEnd);
+
         // The shelf above shades the tops of the books, and the books shade
         // one another near the shelf they stand on.
         float shade = (0.5 + 0.5 * smoothstep(0.0, 0.10, above)) * (0.8 + 0.2 * smoothstep(0.0, 0.05, opening - above));
-        // Old leather is not even.
+        // Old bindings are not even.
         shade *= 0.88 + 0.22 * bNoise(vec2(aa * 3.0 + float(vol) * 5.3, bb * 14.0 + float(shelf) * 2.7));
         result.albedo = albedo * shade;
         result.gloss = gloss;
-        // A rounded spine.
-        result.normal = normalize(-outward + along * ((aa - 0.5) * 1.3));
+        // A rounded spine, and the raised bands tipping toward the lamps.
+        result.normal = normalize(-outward + along * (side * 0.95) + vec3(0.0, rib, 0.0));
         if (chosen) { result.glow = cover * 0.5 + vec3(0.10, 0.08, 0.04); }
         return result;
     }
