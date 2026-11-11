@@ -87,7 +87,7 @@ h3, .eyebrow {
   max-height: calc(100% - 2 * var(--gap));
 }
 
-#tourCard {
+#tourCard, #welcomeCard {
   left: calc(var(--gap) + env(safe-area-inset-left));
   bottom: calc(var(--gap) + env(safe-area-inset-bottom));
   width: 460px;
@@ -99,6 +99,7 @@ h3, .eyebrow {
 
 /* In a tall, narrow window the caption and explorer sit along the bottom. */
 body.tall #tourCard,
+body.tall #welcomeCard,
 body.tall #explorer {
   top: auto;
   left: var(--gap);
@@ -107,7 +108,15 @@ body.tall #explorer {
   width: auto;
 }
 body.tall #explorer { max-height: 50%; }
-body.tall #tourCard { max-height: 62%; }
+body.tall #tourCard, body.tall #welcomeCard { max-height: 62%; }
+
+/* The welcome card (src/welcome.js; the engine's worlds style theirs in worlds.css). */
+#welcomeCard header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+#welcomeCard .body p { margin: 0; font-size: 0.95rem; }
+#welcomeCard button.plain { background: none; padding: 4px 7px; font-size: 1.15rem; line-height: 1; color: var(--accent); }
+#welcomeCard .welcome-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+#welcomeCard .sights { display: flex; flex-wrap: wrap; gap: 6px; max-height: 132px; overflow-y: auto; }
+#welcomeCard .sights button { border-radius: 999px; }
 
 #controlsToggle {
   position: fixed;

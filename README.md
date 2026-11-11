@@ -78,7 +78,13 @@ card away. A link to a place (`#…`), `?tourStep=` and `?ride` skip the
 greeting, and `?plain` opens the world as it stands, for pictures and tests.
 The pictures on the library's cards live in `thumbs/` and are made by
 `shared/make-thumbnails.mjs` in the supervisor repository. Babel, the gallery
-and the Mandelbulb have pages of their own and no greeting yet.
+and the Mandelbulb have pages of their own; they show the same card
+(`src/welcome.js`), whose stops open the tour at that place.
+
+Every world has a ride. Where a world has none of its own (only the Mandelbrot
+set does so far), the ride goes round its sights, one after another, with
+settings for the pace and the pause at each. When a picture comes to rest, the
+sharper drawing of it fades in over the rough one in a quarter of a second.
 
 ## Checks
 

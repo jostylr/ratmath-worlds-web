@@ -7,6 +7,7 @@ import * as Tour from './tour.js';
 import { MandelbulbModel } from './model.js';
 import { Renderer } from './renderer.js';
 import { ImmersiveSession } from './xr.js';
+import { greet } from './welcome.js';
 
 const $ = id => document.getElementById(id);
 
@@ -639,6 +640,11 @@ if (savedScene) {
 } else if (query.has('explorer')) {
   model.openExplorer();
 }
+greet({
+  title: 'Mandelbulb',
+  summary: 'One rule, repeated for every point in space. The border between points that stay and points that fly away is a shape with detail at every scale.',
+  stops: Tour.steps.map(stop => stop.title), showStop: index => model.showTourStep(index), canvas: $('view'),
+});
 
 let urlTimer = null;
 const currentLink = () => sceneURL(bulbSceneText(model));

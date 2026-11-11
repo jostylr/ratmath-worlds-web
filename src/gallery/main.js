@@ -6,6 +6,7 @@ import { compileProgram, manageGraphics } from '../graphics.js';
 import * as G from './logic.js';
 import { VERTEX, FRAGMENT } from './shader.js';
 import { TOUR } from './tour.js';
+import { greet } from '../welcome.js';
 
 const $ = id => document.getElementById(id);
 const canvas = $('view');
@@ -740,6 +741,11 @@ if (location.hash.length <= 1 && query.has('tourStep')) {
   const index = Number(query.get('tourStep'));
   if (Number.isInteger(index) && index >= 0 && index < TOUR.length) { showTourStep(index); }
 }
+greet({
+  title: 'Art gallery',
+  summary: 'The Library\'s rooms, hung with pictures that nobody painted. Each is worked out on the spot from a rule and the place it hangs, with a different rule on every floor: tilings, automata, Julia sets, bit games, or a formula you write yourself.',
+  stops: TOUR.map(stop => stop.title), showStop: showTourStep, canvas,
+});
 changed();
 
 new ResizeObserver(() => { dirty = true; }).observe(canvas);

@@ -7,6 +7,7 @@ import * as L from './library.js';
 import * as W from './world.js';
 import { VERTEX, FRAGMENT } from './shader.js';
 import { TOUR } from './tour.js';
+import { greet } from '../welcome.js';
 import { Spines } from './spines.js';
 import * as Pages from './pages.js';
 
@@ -791,6 +792,11 @@ if (location.hash.length <= 1 && query.has('tourStep')) {
   const index = Number(query.get('tourStep'));
   if (Number.isInteger(index) && index >= 0 && index < TOUR.length) { showTourStep(index); }
 }
+greet({
+  title: 'Library of Babel',
+  summary: 'Borges\'s library of hexagonal galleries holding every possible book. Walk it, climb it, take any book down and read it, and type an address to return. Every text you can think of already has a shelf.',
+  stops: TOUR.map(stop => stop.title), showStop: showTourStep, canvas,
+});
 changed();
 
 new ResizeObserver(() => {
