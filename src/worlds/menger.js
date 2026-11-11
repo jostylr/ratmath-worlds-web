@@ -307,6 +307,98 @@ const tour = [
   },
 ];
 
+// MARK: Explorer
+
+/** The level-k cell that contains a point: one of the 3ᵏ × 3ᵏ × 3ᵏ cubes of
+    side 2 ⁄ 3ᵏ that tile the starting cube. */
+function cellContaining(p, level) {
+  if (Math.max(Math.abs(p[0]), Math.abs(p[1]), Math.abs(p[2])) > 1) { return null; }
+  const count = 3 ** level;
+  const centre = [0, 1, 2].map(axis => {
+    const index = Math.min(Math.floor((p[axis] + 1) / 2 * count), count - 1);
+    return -1 + (index + 0.5) * 2 / count;
+  });
+  return { centre, halfSide: 1 / count };
+}
+
+/** What the explorer says about one point: MengerMath.report in the app. */
+function explorerReport(p, state) {
+  const levels = Math.max(Math.floor(state.values[LEVEL]), 0);
+  const marker = { position: [p[0], p[1], p[2]], size: 1.1 };
+  const names = ['x', 'y', 'z'];
+  if (Math.max(Math.abs(p[0]), Math.abs(p[1]), Math.abs(p[2])) > 1) {
+    return {
+      headline: 'Outside the starting cube',
+      details: ['The cube runs from −1 to 1 along each axis. A point outside it was never part of the sponge.'],
+      tableTitle: 'Address', columns: [], rows: [], markers: [marker],
+    };
+  }
+  const rows = [];
+  const address = [];
+  let removedAt = null;
+  for (let k = 1; k <= levels; k += 1) {
+    const count = 3 ** k;
+    const digits = [];
+    const worked = [['cell side, 2 ⁄ 3ᵏ', Format.significant(2 / count, 4)]];
+    for (let axis = 0; axis < 3; axis += 1) {
+      const scaled = (p[axis] + 1) / 2 * count;
+      const index = Math.min(Math.floor(scaled), count - 1);
+      const digit = index % 3;
+      digits.push(digit);
+      worked.push([`${names[axis]}: 3ᵏ·(${names[axis]}+1)⁄2`, Format.number(scaled, 3)]);
+      worked.push([`${names[axis]} digit`, `${index} mod 3 = ${digit}${digit === 1 ? '  (middle)' : ''}`]);
+    }
+    const middles = digits.filter(digit => digit === 1).length;
+    const removed = middles >= 2;
+    worked.push(['middle digits', `${middles} of 3`]);
+    worked.push(['verdict', removed ? 'cut out' : 'kept']);
+    address.push(`(${digits.join(',')})`);
+    rows.push({
+      id: k,
+      cells: [String(k), ...digits.map(String), String(middles), removed ? 'cut' : 'kept'],
+      workedTitle: `Level ${k}, worked`,
+      worked,
+      note: `Each coordinate is rescaled to 0…1 and multiplied by 3ᵏ; the whole part, mod 3, says whether the point is in the first (0), middle (1) or last (2) third of its level-${k - 1} cube. A cube is cut out when it is in the middle along two or more axes: the centre of a face (two) or the centre of the cube (three).`,
+    });
+    if (removed) {
+      removedAt = k;
+      break;
+    }
+  }
+  const estimate = distance(p, state);
+  let headline;
+  let details;
+  if (removedAt !== null) {
+    headline = `Cut out at level ${removedAt}`;
+    details = [`At level ${removedAt} two or more of its digits are 1, so it lies in the cross that level removes. Nothing at later levels can put it back.`];
+  } else {
+    headline = levels === 0 ? 'In the cube: no cuts made yet' : `Still in the sponge after ${levels} level${levels === 1 ? '' : 's'}`;
+    details = [levels === 0
+      ? 'Raise Level to start cutting.'
+      : 'At every level so far, at most one digit is 1. A deeper level could still cut it out; raise Level to keep testing.'];
+  }
+  if (address.length) { details.push(`Address: ${address.join(' ')}`); }
+  details.push(estimate > 0
+    ? `Distance to the nearest wall: ${Format.significant(estimate)}`
+    : `Depth inside the material: ${Format.significant(-estimate)}`);
+  return {
+    headline, details, tableTitle: 'Base-3 digits, level by level', columns: ['k', 'x', 'y', 'z', '1s', ''], rows,
+    markers: [marker],
+  };
+}
+
+const explorer = {
+  title: 'Address explorer',
+  subtitle: 'Is this point still in the sponge?',
+  buttonTitle: 'Address explorer',
+  blurb: 'The explorer writes a point\'s coordinates in base 3 and shows the level at which it is cut out, if it ever is.',
+  pointTitle: 'Point (white)',
+  coordinates: [{ label: 'x', range: [-1, 1] }, { label: 'y', range: [-1, 1] }, { label: 'z', range: [-1, 1] }],
+  moveHint: 'Arrow keys move the point across the view; with Shift, ↑ and ↓ move it away and nearer. Click or tap a wall to put the point there. The cell that holds the point at the selected level is lit in yellow.',
+  initialProbe: () => [0.52, 0.86, 0.30, 0],
+  report: (probe, state) => explorerReport(probe, state),
+};
+
 export const world = {
   id: 'menger',
   title: 'Menger sponge',
@@ -357,6 +449,23 @@ export const world = {
 
     Colour shows which level carved the wall you are looking at.`,
   tour,
+  explorer,
+  shaderValues(state, probe, row) {
+    const values = [...state.values];
+    // Light the cell that holds the explorer's point at the selected level
+    // (never deeper than the level that cut it out).
+    if (probe) {
+      const rows = explorerReport(probe, state).rows;
+      const cell = rows.length ? cellContaining(probe, Math.min(Math.max(row, 1), rows[rows.length - 1].id)) : null;
+      if (cell) {
+        values[8] = cell.centre[0];
+        values[9] = cell.centre[1];
+        values[10] = cell.centre[2];
+        values[11] = cell.halfSide;
+      }
+    }
+    return values;
+  },
   distance,
   prepareForZoom(state) {
     // Keep enough levels switched on for detail at the new scale.
