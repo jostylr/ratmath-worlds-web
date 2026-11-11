@@ -39,3 +39,9 @@ button.plain { background: none; padding: 4px 7px; font-size: 1.15rem; line-heig
 .welcome-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .sights { display: flex; flex-wrap: wrap; gap: 6px; max-height: 132px; overflow-y: auto; }
 .sights button { border-radius: 999px; }
+
+/* The explorer panel (see "Explorer" in src/worlds/engine.js). */
+#explorer > header { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+#explorer hr { width: 100%; border: 0; border-top: 1px solid var(--line); margin: 2px 0; }
+#explorer .caption { margin: 0; }
+#explorerReport { display: grid; gap: 6px; }

@@ -3,8 +3,8 @@
 // the picture John Hubbard drew for his students, in Gleick's Chaos.
 // This is Worlds/Flat/NewtonWorld.swift, without its explorer; the tour's
 // words are copied from it.
-import { newState, copyState, keyframe, slider, toggle, readout, group } from './engine.js';
-import { SHELF, WHITE, YELLOW, dot, segment, blend, complex, lookDown, plane, view, pan, dive } from './flat-support.js';
+import { newState, copyState, keyframe, slider, toggle, readout, group, Format } from './engine.js';
+import { SHELF, WHITE, YELLOW, dot, segment, blend, complex, lookDown, plane, view, pan, dive, sub, sup, flatPointExplorer } from './flat-support.js';
 import { FRAGMENT } from './shaders/newton.js';
 
 // Indices into the state's values.
@@ -114,6 +114,70 @@ function pathMarkers(found, selected, state) {
   }
   return markers.filter(Boolean);
 }
+
+// MARK: Explorer
+
+/** What the explorer says about one starting guess: NewtonWorld.report in the app. */
+function explorerReport(point, state, row) {
+  const n = roots(state);
+  const found = search(point, state);
+  const last = Math.min(found.steps.length - 1, 40);
+  const size = state.values[STEP_SIZE];
+  const rows = [];
+  for (let index = 0; index <= last; index += 1) {
+    const one = found.steps[index];
+    const error = Math.hypot(...one.value);
+    rows.push({
+      id: index,
+      cells: [String(index), complex(one.z, 3), Format.significant(error, 3)],
+      workedTitle: `Step ${index}, worked`,
+      worked: [
+        [`z${sub(index)}`, complex(one.z)],
+        [`error, z${sup(n)} − 1`, complex(one.value)],
+        [`slope, ${n}·z${sup(n - 1)}`, complex(one.slope)],
+        ['error ⁄ slope', complex(one.change)],
+        [`z${sub(index + 1)} = z − a × that`, complex(one.next)],
+      ],
+      note: error < 1e-3
+        ? 'The error is already tiny. This close to a root each step about squares it: the number of correct digits doubles.'
+        : (Math.hypot(...one.slope) < 0.5
+          ? 'The slope here is small, and dividing by a small number gives a large hop. This is how a guess gets thrown across the picture: near z = 0 the slope vanishes altogether.'
+          : 'Dividing the error by the slope says how far to move so that, if the curve were straight, the error would become zero. It is not straight, so the method tries again from the new place.'),
+    });
+  }
+  let headline;
+  let details;
+  if (found.root !== null) {
+    headline = `Finds ${rootName(found.root, n)}`;
+    details = [
+      `It took ${found.steps.length - 1} steps for the error to fall below a thousandth.`,
+      size === 1
+        ? 'With the full step, the last few steps roughly double the correct digits each time.'
+        : `The step size is ${size.toFixed(2)}, not Newton's 1, so each step multiplies the error by about ${Math.abs(1 - size).toFixed(2)} near the root instead of squaring it.`,
+    ];
+  } else {
+    headline = `No root within ${stepLimit(state)} steps`;
+    details = ['This guess is on or very near a border, where the method wanders. Such guesses are painted black.'];
+  }
+  if (found.steps.length - 1 > last) { details.push(`The table and the picture show the first ${last} steps.`); }
+  return {
+    headline, details, tableTitle: 'Guesses', columns: ['n', 'zₙ', '|error|'], rows,
+    markers: pathMarkers(found, clamp(row, 0, last), state),
+  };
+}
+
+const explorer = {
+  ...flatPointExplorer,
+  title: 'Guess explorer',
+  subtitle: 'One guess, improved step by step',
+  buttonTitle: 'Guess explorer',
+  blurb: 'The explorer follows one starting guess: the error at each step, the slope, and the hop the method makes from them.',
+  pointTitle: 'Starting guess',
+  coordinates: [{ label: 'real', range: [-3, 3] }, { label: 'imag.', range: [-3, 3] }],
+  moveHint: 'Arrow keys move the guess. Click or tap the picture to put it there.',
+  initialProbe: state => [state.values[START_X], state.values[START_Y], 0, 0],
+  report: (probe, state, row) => explorerReport([probe[0], probe[1]], state, row),
+};
 
 // MARK: Guided tour
 
@@ -312,6 +376,7 @@ export const world = {
     toward it. A single tap chooses the starting guess. Brighter means
     fewer steps were needed.`,
   tour,
+  explorer,
   shaderValues(state) {
     const values = new Array(32).fill(0);
     values[0] = roots(state);

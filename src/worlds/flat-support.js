@@ -113,3 +113,19 @@ export function dice(seed) {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
+
+/**
+ * The parts of an explorer that every flat world with the orbit camera
+ * shares: the arrows move its point a little way across the view, and a tap
+ * puts it where the picture was touched.
+ */
+export const flatPointExplorer = {
+  move(probe, right, up, away, state) {
+    const step = 0.03 * scale(state);
+    return [probe[0] + right * step, probe[1] + up * step, 0, 0];
+  },
+  pick(viewPoint, state) {
+    const point = plane(viewPoint, state);
+    return [point[0], point[1], 0, 0];
+  },
+};

@@ -3,8 +3,8 @@
 // the chapters on May and Feigenbaum in James Gleick's Chaos.
 // This is Worlds/Flat/LogisticWorld.swift, without its explorer; the tour's
 // words are copied from it.
-import { newState, copyState, keyframe, slider, picker, toggle, readout, group } from './engine.js';
-import { SHELF, sup } from './flat-support.js';
+import { newState, copyState, keyframe, slider, picker, toggle, readout, group, Format } from './engine.js';
+import { SHELF, sup, sub } from './flat-support.js';
 import { FRAGMENT } from './shaders/logistic.js';
 
 // Indices into the state's values.
@@ -438,6 +438,83 @@ const tour = [
 
 // MARK: World
 
+// MARK: Explorer
+
+/** What the explorer says about the rule as it is set: LogisticWorld.report in the app. */
+function explorerReport(state) {
+  const growth = state.values[R];
+  const sine = isSine(state);
+  const values = path(state, clamp(state.values[X0], 0, 1));
+  const first = firstIndex(state);
+  const last = Math.min(values.length - 2, 40);
+  const six = value => Format.number(value, 6);
+  const rows = [];
+  for (let index = 0; index <= Math.max(last, 0); index += 1) {
+    const x = values[index];
+    const following = values[index + 1];
+    const n = first + index;
+    const steepness = slope(x, growth, sine);
+    const worked = [[`x${sub(n)}`, six(x)]];
+    if (sine) {
+      worked.push(
+        [`π · x${sub(n)}`, six(Math.PI * x)],
+        ['sin of that', six(Math.sin(Math.PI * x))],
+        [`× r ⁄ 4 = x${sub(n + 1)}`, six(following)],
+        ['slope, (r ⁄ 4)·π·cos πx', Format.number(steepness, 4)]);
+    } else {
+      worked.push(
+        [`1 − x${sub(n)}`, six(1 - x)],
+        [`x${sub(n)} · (1 − x${sub(n)})`, six(x * (1 - x))],
+        [`× r = x${sub(n + 1)}`, six(following)],
+        ['slope, r·(1 − 2x)', Format.number(steepness, 4)]);
+    }
+    rows.push({
+      id: index,
+      cells: [String(n), six(x), six(following)],
+      workedTitle: `Step ${n} → ${n + 1}, worked`,
+      worked,
+      note: `The slope says what this step does to a small difference: here it multiplies it by ${Math.abs(steepness).toFixed(3)}, which is ${
+        Math.abs(steepness) < 1 ? 'less than 1, so two nearby populations are closer together afterward.' : 'more than 1, so two nearby populations are farther apart afterward.'}`,
+    });
+  }
+
+  const run = longRun(state);
+  const stretch = Math.exp(run.exponent).toFixed(3);
+  let headline;
+  let details;
+  if (run.cycle) {
+    const cycle = run.cycle;
+    headline = cycle.length === 1 ? 'Settles on one value' : `Settles into a cycle of ${cycle.length}`;
+    details = [
+      `${cycle.length === 1 ? 'The value: ' : 'The values: '}${cycle.slice(0, 8).map(value => Format.number(value, 5)).join(', ')}${cycle.length > 8 ? ', …' : ''}.`,
+      `On average each step multiplies a small difference by ${stretch}. That is less than 1, so every nearby start is drawn onto the same cycle, and a small error in measuring x₀ does not matter.`,
+    ];
+  } else if (run.exponent > 0.005) {
+    headline = 'Chaos: no cycle';
+    details = [
+      'After 4,000 steps of run-in, the next 2,048 values contain no repeat.',
+      `On average each step multiplies a small difference by ${stretch}. That is more than 1, so an error in x₀ grows until the forecast is worthless: about ${Math.round(Math.log(1e6) / run.exponent)} steps turn an error of a millionth into an error of 1.`,
+    ];
+  } else {
+    headline = 'Still settling';
+    details = ['This r is so close to a doubling that the rule creeps toward its cycle too slowly to arrive in 6,000 steps. Exactly at a doubling, small differences neither shrink nor grow.'];
+  }
+  if (state.values[SKIP] > 0.5) { details.push(`The first ${RUN_IN} steps are skipped, so the table starts at step ${RUN_IN}.`); }
+  return { headline, details, tableTitle: 'Values', columns: ['n', 'xₙ', 'xₙ₊₁'], rows, markers: pathData(state) };
+}
+
+const explorer = {
+  title: 'Step explorer',
+  subtitle: 'Each year\'s arithmetic, and where it all ends up',
+  buttonTitle: 'Step explorer',
+  blurb: 'The explorer lists the values one by one with the arithmetic for each, finds the cycle the rule settles into, and measures how fast two nearby starts close up or separate.',
+  pointTitle: '',
+  coordinates: [],
+  moveHint: '',
+  initialProbe: () => [0, 0, 0, 0],
+  report: (probe, state) => explorerReport(state),
+};
+
 export const world = {
   id: 'logistic',
   title: 'Logistic map',
@@ -521,6 +598,7 @@ export const world = {
     pictures, drag left and right to change r, and tap the cobweb to
     choose where it starts.`,
   tour,
+  explorer,
   shaderValues(state, probe, row) {
     const spacing = grid(state);
     const values = new Array(32).fill(0);

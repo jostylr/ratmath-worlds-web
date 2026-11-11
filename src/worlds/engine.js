@@ -957,8 +957,8 @@ export function start(world) {
     dragBy(dx / unit, dy / unit);
   });
   const release = event => {
-    if (event.type === 'pointerup' && explorerOpen && pointers.size === 1 && !pinch
-        && !interactions.has('rotation')) {
+    if (event.type === 'pointerup' && explorerOpen && world.explorer.coordinates.length
+        && pointers.size === 1 && !pinch && !interactions.has('rotation')) {
       // With the explorer open, a tap puts its point there.
       const box = canvas.getBoundingClientRect();
       pickProbe(event.clientX - box.left, event.clientY - box.top);

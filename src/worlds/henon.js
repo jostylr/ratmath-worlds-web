@@ -4,7 +4,7 @@
 // This is Worlds/Flat/HenonWorld.swift, without its explorer; the tour's
 // words are copied from it.
 import { newState, copyState, keyframe, slider, picker, toggle, readout, group, Format } from './engine.js';
-import { SHELF, lookDown, scale, plane, pan, dive, dice } from './flat-support.js';
+import { SHELF, lookDown, scale, plane, pan, dive, dice, sub } from './flat-support.js';
 import { FRAGMENT } from './shaders/backdrop.js';
 
 // Indices into the state's values.
@@ -321,6 +321,78 @@ const tour = [
 
 const three = value => value.toFixed(3);
 
+// MARK: Explorer
+
+/** What the explorer says about one starting point: HenonWorld.report in the app. */
+function explorerReport(point, state, row) {
+  const points = [point];
+  for (let i = 0; i < 40; i += 1) {
+    const following = next(points[points.length - 1], state);
+    if (!(Math.abs(following[0]) < 1e6)) { break; }
+    points.push(following);
+  }
+  const last = Math.max(points.length - 2, 0);
+  const n4 = value => Format.number(value, 4);
+  const rows = [];
+  for (let index = 0; index <= last; index += 1) {
+    const p = points[index];
+    const following = points[Math.min(index + 1, points.length - 1)];
+    rows.push({
+      id: index,
+      cells: [String(index), n4(p[0]), n4(p[1])],
+      workedTitle: `Step ${index} → ${index + 1}, worked`,
+      worked: [
+        [`x${sub(index)}, y${sub(index)}`, `${n4(p[0])}, ${n4(p[1])}`],
+        ['a·x²', n4(state.values[A] * p[0] * p[0])],
+        [`1 − a·x² + y = x${sub(index + 1)}`, n4(following[0])],
+        [`b·x = y${sub(index + 1)}`, n4(following[1])],
+      ],
+      note: 'The a·x² term bends the plane: points far to either side are pushed down more than points in the middle. The second line squeezes: the new y is only b times the old x, so everything is flattened toward a curve.',
+    });
+  }
+  const run = longRun(point, state);
+  let headline;
+  let details;
+  if (run.away) {
+    headline = 'Runs away';
+    details = ['This start is outside the region the attractor draws from. Its x grows without limit, squared at each step.'];
+  } else if (run.cycle) {
+    headline = run.cycle === 1 ? 'Settles on one point' : `Settles into a cycle of ${run.cycle}`;
+    details = [`For this a and b the long run is not chaotic: every nearby start ends on the same ${run.cycle === 1 ? 'point' : `${run.cycle} points`}.`];
+  } else {
+    headline = 'Ends on the strange attractor';
+    details = [
+      'After 6,000 steps it has not repeated, and shows no sign that it ever will. It never leaves the curve.',
+      `Each step shrinks areas to ${Format.number(Math.abs(state.values[B]), 2)} of what they were, so the attractor has no area at all. Its dimension, measured by counting boxes, is about 1.26 at Hénon's values: more than a line, less than a surface.`,
+    ];
+  }
+  const at = points[clamp(row, 0, last)];
+  return {
+    headline, details, tableTitle: 'Steps', columns: ['n', 'xₙ', 'yₙ'], rows,
+    markers: [{ position: [at[0], at[1] * STRETCH, 0], size: 1.3 }],
+  };
+}
+
+const explorer = {
+  title: 'Step explorer',
+  subtitle: 'One point, bent and squeezed step by step',
+  buttonTitle: 'Step explorer',
+  blurb: 'The explorer follows one point: the arithmetic of every step, and what becomes of it in the long run.',
+  pointTitle: 'Starting point',
+  coordinates: [{ label: 'x', range: [-1.5, 1.5] }, { label: 'y', range: [-0.5, 0.5] }],
+  moveHint: 'Arrow keys move the start. Click or tap the picture to put it there. Its first thirty steps are joined in pink.',
+  initialProbe: state => [state.values[START_X], state.values[START_Y], 0, 0],
+  report: (probe, state, row) => explorerReport([probe[0], probe[1]], state, row),
+  move(probe, right, up, away, state) {
+    const step = 0.03 * scale(state);
+    return [probe[0] + right * step, probe[1] + up * step / STRETCH, 0, 0];
+  },
+  pick(viewPoint, state) {
+    const point = fromScene(plane(viewPoint, state));
+    return [point[0], point[1], 0, 0];
+  },
+};
+
 export const world = {
   id: 'henon',
   title: 'Hénon\'s attractor',
@@ -378,6 +450,7 @@ export const world = {
     toward it. A single tap chooses where the point starts. The picture
     is drawn two and a half times taller than it is, as Hénon drew it.`,
   tour,
+  explorer,
   discreteValues: new Set([PICTURE, TRAIL]),
   cameraBacksAwayWhenMoving: false,
   drag: (state, probe, dx, dy) => pan(state, dx, dy),
