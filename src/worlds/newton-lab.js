@@ -3,7 +3,7 @@
 // formula typed in. The plain Newton world keeps to zⁿ = 1.
 // This is Worlds/Flat/NewtonLabWorld.swift, without its explorer; the tour's
 // words are copied from it.
-import { newState, copyState, keyframe, slider, picker, toggle, readout, group } from './engine.js';
+import { newState, copyState, keyframe, slider, picker, toggle, readout, group, Format } from './engine.js';
 import { SHELF, WHITE, YELLOW, PINK, dot, segment, blend, complex, lookDown, scale, plane, view, pan, dive } from './flat-support.js';
 import { parse, evaluate, table, pack, unpack, CHARACTERS_PER_VALUE } from './formula-program.js';
 import { FRAGMENT } from './shaders/newton-lab.js';
@@ -438,6 +438,69 @@ function formulaField({ panel, state, change }) {
 
 // MARK: World
 
+// MARK: Explorer
+
+const subscript = n => [...String(n)].map(c => '₀₁₂₃₄₅₆₇₈₉'[c] ?? c).join('');
+
+/** What the explorer says about one starting guess: NewtonLabWorld.report in the app. */
+function explorerReport(point, state, row) {
+  const found = search(point, state);
+  const last = Math.min(found.steps.length - 1, 40);
+  const rows = [];
+  for (let index = 0; index <= last; index += 1) {
+    const one = found.steps[index];
+    rows.push({
+      id: index,
+      cells: [String(index), complex(one.z, 3), Format.significant(Math.hypot(...one.value), 3)],
+      workedTitle: `Step ${index}, worked`,
+      worked: [
+        [`z${subscript(index)}`, complex(one.z)],
+        ['value, f(z)', complex(one.value)],
+        ['slope, f′(z)', complex(one.slope)],
+        ['value ⁄ slope', complex(one.change)],
+        [`z${subscript(index + 1)} = z − a × that`, complex(one.next)],
+      ],
+      note: usesFormula(state)
+        ? 'The slope is not found by algebra. Every number in the formula carries its own slope with it through each operation: the product rule at a multiplication, cos at a sine, and so on. At the end the slope of the whole formula is simply there.'
+        : 'For a function given by its roots, value ⁄ slope is one over the sum of 1 ⁄ (z − root) for every root, less the same for each pole. Near one root that term swamps the rest, and the hop lands almost on it.',
+    });
+  }
+  let headline;
+  let details;
+  if (found.found) {
+    headline = `Finds ${complex(found.found, 4)}`;
+    details = [`It took ${found.steps.length - 1} steps.`];
+  } else {
+    headline = `No root within ${stepLimit(state)} steps`;
+    details = ['This guess is caught in a cycle, is still wandering, or has been thrown too far to come back. Such guesses are painted black.'];
+  }
+  if (found.steps.length - 1 > last) { details.push(`The table and the picture show the first ${last} steps.`); }
+  return {
+    headline, details, tableTitle: 'Guesses', columns: ['n', 'zₙ', '|f(zₙ)|'], rows,
+    markers: pathMarkers(found, clamp(row, 0, last), state),
+  };
+}
+
+const explorer = {
+  title: 'Guess explorer',
+  subtitle: 'One guess, improved step by step',
+  buttonTitle: 'Guess explorer',
+  blurb: 'The explorer follows one starting guess: the function\'s value and slope at each step, and the hop the method makes from them.',
+  pointTitle: 'Starting guess',
+  coordinates: [{ label: 'real', range: [-6, 6] }, { label: 'imag.', range: [-6, 6] }],
+  moveHint: 'Arrow keys move the guess. Click or tap the picture to put it there.',
+  initialProbe: state => [state.values[START_X], state.values[START_Y], 0, 0],
+  report: (probe, state, row) => explorerReport([probe[0], probe[1]], state, row),
+  move(probe, right, up, away, state) {
+    const step = 0.03 * scale(state);
+    return [probe[0] + right * step, probe[1] + up * step, 0, 0];
+  },
+  pick(viewPoint, state) {
+    const point = plane(viewPoint, state);
+    return [point[0], point[1], 0, 0];
+  },
+};
+
 export const world = {
   id: 'newton-lab',
   title: "Newton's laboratory",
@@ -495,6 +558,7 @@ export const world = {
     zoom and double-tap to dive. A single tap picks up a root or pole,
     puts it down, or chooses the starting guess.`,
   tour,
+  explorer,
   shaderValues(state) {
     const values = new Array(32).fill(0);
     values[0] = usesFormula(state) ? 1 : 0;

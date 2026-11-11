@@ -3,7 +3,7 @@
 // third dimension passing through. This is Worlds/Flat/FlatlandWorld.swift,
 // without its explorer; the tour's words are copied from it.
 import { newState, copyState, keyframe, slider, picker, movePad, readout, group, Format } from './engine.js';
-import { SHELF } from './flat-support.js';
+import { SHELF, WHITE, CYAN, dot, segment, ring } from './flat-support.js';
 import { FRAGMENT } from './shaders/flatland.js';
 
 // Indices into the state's values.
@@ -335,6 +335,123 @@ const tour = [
 
 // MARK: World
 
+// MARK: Explorer
+
+const NAMES = ['nothing', 'the Triangle', 'the Square', 'the Pentagon', 'the Hexagon', 'the Circle', 'the Needle', 'the visitor'];
+
+const mapPlane = (viewPoint, state) => {
+  const s = mapScale(state);
+  return [MAP_CENTRE[0] + viewPoint[0] * s, MAP_CENTRE[1] + (viewPoint[1] - mapShift(state)) * s];
+};
+const mapView = (point, state) => {
+  const s = mapScale(state);
+  return [(point[0] - MAP_CENTRE[0]) / s, (point[1] - MAP_CENTRE[1]) / s + mapShift(state)];
+};
+
+/** The direction of the explorer's line of sight, kept inside the field of view. */
+function rayAngle(probe, state) {
+  const limit = field(state) / 2 * 180 / Math.PI;
+  return state.values[HEADING] - clamp(probe[0], -limit, limit) * Math.PI / 180;
+}
+
+/** One line of sight, stepped the way the picture steps it: each step goes
+    as far as the nearest shape allows. */
+function sight(origin, angle, state, reach = 30) {
+  const direction = [Math.cos(angle), Math.sin(angle)];
+  const steps = [];
+  let travelled = 0;
+  for (let i = 0; i < 72; i += 1) {
+    const position = [origin[0] + direction[0] * travelled, origin[1] + direction[1] * travelled];
+    const close = nearest(position, state);
+    steps.push({ travelled, position, distances: distances(position, state), nearest: close.shape });
+    if (close.distance < 0.003) { return { steps, hit: close.shape, travelled }; }
+    travelled += close.distance;
+    if (travelled > reach) { break; }
+  }
+  return { steps, hit: 0, travelled: reach };
+}
+
+/** What the explorer says about one line of sight: FlatlandWorld.report in the app. */
+function explorerReport(probe, state, row) {
+  const angle = rayAngle(probe, state);
+  const origin = eye(state);
+  const path = sight(origin, angle, state);
+  const shown = path.steps.slice(0, 30);
+  const n3 = value => Format.number(value, 3);
+  const rows = shown.map((step, index) => {
+    const clear = step.distances[step.nearest];
+    const ranked = step.distances.map((d, shape) => shape).filter(shape => shape > 0 && step.distances[shape] < 1e5)
+      .sort((a, b) => step.distances[a] - step.distances[b]);
+    const worked = [
+      ['travelled so far, t', n3(step.travelled)],
+      ['eye + t·direction', `(${n3(step.position[0])}, ${n3(step.position[1])})`],
+      ...ranked.slice(0, 3).map(shape => [`to ${NAMES[shape]}`, n3(step.distances[shape])]),
+      ['smallest', n3(clear)],
+    ];
+    return {
+      id: index,
+      cells: [String(index), n3(step.travelled), n3(clear)],
+      workedTitle: `Step ${index}, worked`,
+      worked,
+      note: clear < 0.003
+        ? `The nearest shape is closer than 0.003: the line of sight has arrived at ${NAMES[step.nearest]}.`
+        : `Nothing lies within ${n3(clear)} of this spot: that is the ring drawn round it. So the line of sight can go that far in any direction without meeting anything, and it does.`,
+    };
+  });
+  const fogAmount = Math.max(state.values[FOG], 0);
+  const brightness = Math.exp(-fogAmount * path.travelled);
+  let headline;
+  let details;
+  if (path.hit > 0) {
+    headline = `Meets ${NAMES[path.hit]}, ${Format.number(path.travelled, 2)} away`;
+    details = [
+      `The fog dims it to e^(−${Format.number(fogAmount, 2)} × ${Format.number(path.travelled, 2)}) = ${Math.round(brightness * 100)}% of full brightness. That brightness is the only clue to distance a Flatlander has.`,
+      `It took ${path.steps.length - 1} steps to get there. The picture follows a line like this for every point of the band.`,
+    ];
+  } else {
+    headline = 'Meets nothing';
+    details = ['This line of sight runs off into the fog without touching any shape, so that point of the band is dark.'];
+  }
+  const markers = [];
+  if (viewIndex(state) !== 2) {
+    const far = Math.min(path.travelled, 12);
+    const end = [origin[0] + Math.cos(angle) * far, origin[1] + Math.sin(angle) * far];
+    markers.push(segment(mapView(origin, state), mapView(end, state), WHITE));
+    for (const step of shown.slice(0, 24)) {
+      if (step.distances[step.nearest] > 0.02) {
+        markers.push(ring(mapView(step.position, state), step.distances[step.nearest] / mapScale(state), CYAN));
+      }
+    }
+    markers.push(dot(mapView(shown[clamp(row, 0, shown.length - 1)].position, state), WHITE, 0.014));
+  }
+  return {
+    headline, details, tableTitle: 'The line of sight, step by step', columns: ['', 'travelled', 'clear for'], rows,
+    markers: markers.filter(Boolean),
+  };
+}
+
+const explorer = {
+  title: 'Sight explorer',
+  subtitle: 'One line of sight, followed to what it meets',
+  buttonTitle: 'Sight explorer',
+  blurb: 'The explorer follows one line of sight from your eye: each step it takes, what it meets, how far away, and how much the fog dims it.',
+  pointTitle: 'Line of sight, degrees right of straight ahead',
+  coordinates: [{ label: 'angle', range: [-90, 90] }],
+  moveHint: 'Left and right arrows swing the line of sight. Click or tap the map to aim it there. The white mark on the band is where this line of sight falls in what you see.',
+  initialProbe: () => [0, 0, 0, 0],
+  report: (probe, state, row) => explorerReport(probe, state, row),
+  move: (probe, right) => [clamp(probe[0] + right * 2, -90, 90), 0, 0, 0],
+  pick(viewPoint, state) {
+    if (viewIndex(state) === 2) { return null; }
+    const at = mapPlane(viewPoint, state);
+    const toward = [at[0] - state.values[EYE_X], at[1] - state.values[EYE_Y]];
+    if (!(Math.hypot(...toward) > 1e-6)) { return null; }
+    let offset = state.values[HEADING] - Math.atan2(toward[1], toward[0]);
+    offset -= 2 * Math.PI * Math.round(offset / (2 * Math.PI));
+    return [clamp(offset * 180 / Math.PI, -90, 90), 0, 0, 0];
+  },
+};
+
 export const world = {
   id: 'flatland',
   title: 'Flatland',
@@ -396,7 +513,8 @@ export const world = {
     Drag to turn, and walk with the buttons or W A S D. Shapes are solid:
     you cannot walk through them. Zoom magnifies the map.`,
   tour,
-  shaderValues(state) {
+  explorer,
+  shaderValues(state, probe) {
     const values = new Array(32).fill(0);
     values[0] = state.values[EYE_X];
     values[1] = state.values[EYE_Y];
@@ -409,7 +527,11 @@ export const world = {
     values[8] = field(state);
     values[9] = mapScale(state);
     values[10] = mapShift(state);
-    // 11 and 12 are the explorer's line of sight, which the web leaves out.
+    // The explorer's line of sight, marked on the band.
+    if (probe) {
+      values[11] = 1;
+      values[12] = rayAngle(probe, state);
+    }
     return values;
   },
   discreteValues: new Set([VIEW_KIND, VISITOR]),

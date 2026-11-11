@@ -188,3 +188,21 @@ test('the Mandelbrot explorer follows a tapped number and works a step out', asy
   await expect(page.locator('#explorerPill')).toBeVisible();
   expect(errors).toEqual([]);
 });
+
+// Every world on the 2D shelf has an explorer: it opens, gives a verdict, and closes.
+for (const world of ['logistic', 'newton', 'newton-lab', 'henon', 'chaos-game', 'pendulum', 'penrose', 'apollonian', 'flatland']) {
+  test(`${world}: the explorer opens with a verdict and closes`, async ({ page }) => {
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await page.goto(`/${world}.html?plain`); await ready(page);
+    await page.locator('#explorerPill').click();
+    await expect(page.locator('#explorerReport .verdict-title')).not.toBeEmpty();
+    const box = await page.locator('#view').boundingBox();
+    await page.mouse.click(box.x + box.width * 0.45, box.y + box.height * 0.6);
+    await page.keyboard.press('ArrowRight');
+    await expect(page.locator('#explorerReport .verdict-title')).not.toBeEmpty();
+    await page.getByRole('button', { name: 'Close explorer', exact: true }).click();
+    await expect(page.locator('#explorer')).toBeHidden();
+    expect(errors).toEqual([]);
+  });
+}
