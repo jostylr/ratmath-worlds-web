@@ -199,7 +199,7 @@ const tour = [
       neighbour the others push in again, without end.
 
       Every point of the border touches all three colours at once.
-      No map of three countries on paper could be drawn that way,
+      No ordinary map of three countries is drawn that way,
       and yet here it is, made by a method for finding cube roots.`,
     tryIt: 'Double-tap a bead',
     build(base) {

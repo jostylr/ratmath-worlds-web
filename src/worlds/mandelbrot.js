@@ -385,8 +385,8 @@ const tour = [
     body: `
       Here the Julia set fills the screen and the small picture is the
       map, with the yellow dot showing which c is in use. As the dot
-      travels, the Julia set changes shape continuously: a rabbit with
-      three ears from the bulb of three, then spirals near the valley,
+      travels, the Julia set changes shape continuously: a rabbit, its lobes
+      meeting in threes, from the bulb of three, then spirals near the valley,
       then a lightning bolt at the tip of an antenna.
 
       Each Julia set looks the same all the way round and at every
@@ -488,6 +488,60 @@ function reference(state) {
   return best;
 }
 
+const juliaReferenceCache = { key: '', value: { orbit: NO_REFERENCE, lastOfZero: 0, startOfCentre: 0, lastOfCentre: 0 } };
+
+/** The two orbits a Julia set's pixels are measured against (juliaDeep in
+    the shader): the orbit of zero, then the orbit of the point at the
+    centre of the view. */
+function juliaReference(state) {
+  const limit = stepLimit(state);
+  const middle = wideCentre(state);
+  const wide = scale(state) < WIDE_BELOW;
+  const [cx, cy] = c(state);
+  const key = [...middle[0], ...middle[1], cx, cy, wide, limit].join(',');
+  if (key === juliaReferenceCache.key) { return juliaReferenceCache.value; }
+  const orbit = new Float32Array(4 * (2 * limit + 2));
+  let at = 0;
+  const put = (x, y) => { orbit[4 * at] = x; orbit[4 * at + 1] = y; at += 1; };
+
+  // The orbit of zero: the one every other orbit can be handed on to.
+  put(0, 0);
+  for (let n = 0, x = 0, y = 0; n < limit; n += 1) {
+    const next = x * x - y * y + cx;
+    y = 2 * x * y + cy;
+    x = next;
+    put(x, y);
+    if (x * x + y * y > 1e6) { break; }
+  }
+  const lastOfZero = at - 1;
+  const startOfCentre = at;
+
+  // The orbit of the centre of the view, to as many digits as the depth needs.
+  put(middle[0][0], middle[1][0]);
+  if (wide) {
+    let x = middle[0], y = middle[1];
+    for (let n = 0; n < limit; n += 1) {
+      const next = Wide.plus(Wide.sub(Wide.mul(x, x), Wide.mul(y, y)), cx);
+      y = Wide.plus(Wide.times(Wide.mul(x, y), 2), cy);
+      x = next;
+      put(x[0], y[0]);
+      if (x[0] * x[0] + y[0] * y[0] > 1e6) { break; }
+    }
+  } else {
+    for (let n = 0, x = middle[0][0], y = middle[1][0]; n < limit; n += 1) {
+      const next = x * x - y * y + cx;
+      y = 2 * x * y + cy;
+      x = next;
+      put(x, y);
+      if (x * x + y * y > 1e6) { break; }
+    }
+  }
+  const value = { orbit: orbit.subarray(0, 4 * at), lastOfZero, startOfCentre, lastOfCentre: at - 1 - startOfCentre };
+  juliaReferenceCache.key = key;
+  juliaReferenceCache.value = value;
+  return value;
+}
+
 export const world = {
   id: 'mandelbrot',
   title: 'Mandelbrot and Julia sets',
@@ -556,8 +610,9 @@ export const world = {
       you go, the higher it needs to be, and the slower the
       picture.
 
-      A Julia set is drawn the plain way, and blurs into blocks
-      past 20,000×.`, [
+      A Julia set is drawn the same way and goes as deep: each pixel
+      is measured against the orbit of the point at the centre of the
+      view.`, [
       readout('Centre, real', state => Wide.decimal(wideCentre(state)[0], places(state))),
       readout('Centre, imaginary', state => Wide.decimal(wideCentre(state)[1], places(state))),
       readout('Width shown', state => Format.significant(2 * scale(state), 3)),
@@ -584,10 +639,16 @@ export const world = {
       values[8] = ref.last;
       values[9] = ref.offset[0];
       values[10] = ref.offset[1];
+    } else {
+      const ref = juliaReference(state);
+      values[8] = ref.lastOfZero;
+      values[9] = ref.startOfCentre;
+      values[10] = ref.lastOfCentre;
+      values[11] = 1;
     }
     return values;
   },
-  shaderData: state => (isJulia(state) ? NO_REFERENCE : reference(state).orbit),
+  shaderData: state => (isJulia(state) ? juliaReference(state).orbit : reference(state).orbit),
   discreteValues: new Set([PICTURE, INSET, ORBIT]),
   cameraBacksAwayWhenMoving: false,
   drag(state, probe, dx, dy) {

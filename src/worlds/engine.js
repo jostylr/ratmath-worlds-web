@@ -168,6 +168,16 @@ export const Format = {
     if (!Number.isFinite(value)) { return '∞'; }
     return value.toLocaleString('en-US', { minimumSignificantDigits: digits, maximumSignificantDigits: digits });
   },
+  /** A magnification for a label: 3.4×, 12,400×, 1.2 × 10¹². */
+  zoom(value) {
+    if (!(Number.isFinite(value) && value > 0)) { return '∞'; }
+    if (value < 100) { return value.toFixed(1) + '×'; }
+    if (value < 1e6) { return Math.round(value).toLocaleString('en-US') + '×'; }
+    let power = Math.floor(Math.log10(value));
+    let lead = value / 10 ** power;
+    if (lead >= 9.95) { lead = 1; power += 1; }
+    return `${lead.toFixed(1)} × 10${String(power).replace(/\d/g, d => '⁰¹²³⁴⁵⁶⁷⁸⁹'[d])}`;
+  },
   degrees: (radians, digits = 2) => Format.fixed(radians * 180 / Math.PI, digits) + '°',
   vector: (v, digits = 3) => `(${v.map(c => Format.number(c, digits)).join(', ')})`,
 };
@@ -664,6 +674,8 @@ export function start(world) {
     if (location.hash.replace(/^#/, '') === sceneText()) { return; }
     endTour();
     endRide();
+    endSight();
+    closeWelcome(false);
     animation = null;
     state = readScene(location.hash);
     changed();
@@ -685,6 +697,8 @@ export function start(world) {
       // The person's hands win over any animation in progress.
       animation = null;
       if (ride && !ride.paused) { pauseRide(); }
+      // Taking hold of the picture is answer enough to the welcome.
+      if (kind !== 'parameters') { closeWelcome(false); }
       interactions.add(kind);
     } else {
       interactions.delete(kind);
@@ -757,10 +771,23 @@ export function start(world) {
   }
 
   const pointers = new Map();
+  /** How fast the picture is being dragged, in drag units a second, and
+      the glide that carries on after it is let go. */
+  let dragSpeed = [0, 0];
+  let lastDragAt = 0;
+  let glide = null;
+  /** Zooming asked for by the wheel and not yet carried out. */
+  let wheelZoom = null;
+  /** The state before the latest tap on the picture, and when it was. */
+  let tapUndo = null;
+  const DOUBLE_TAP_TIME = 500;
   let pinch = null;
   let wheelTimer = null;
 
   canvas.addEventListener('pointerdown', event => {
+    // A hand on the picture stops it gliding.
+    if (glide) { glide = null; setInteraction('rotation', false); }
+    dragSpeed = [0, 0];
     pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
     try { canvas.setPointerCapture(event.pointerId); } catch { /* a pointer that cannot be captured still drags */ }
     canvas.focus();
@@ -793,6 +820,10 @@ export function start(world) {
       setInteraction('rotation', true);
     }
     const unit = Math.max(Math.min(canvas.clientWidth, canvas.clientHeight) / 2, 1);
+    const at = performance.now();
+    const seconds = Math.max(at - lastDragAt, 4) / 1000;
+    lastDragAt = at;
+    dragSpeed = [0.5 * dragSpeed[0] + 0.5 * dx / unit / seconds, 0.5 * dragSpeed[1] + 0.5 * dy / unit / seconds];
     dragBy(dx / unit, dy / unit);
   });
   const release = event => {
@@ -803,6 +834,10 @@ export function start(world) {
       const viewPoint = Camera.viewPoint(event.clientX - box.left, event.clientY - box.top,
         canvas.clientWidth, canvas.clientHeight, verticalShift);
       if (viewPoint) {
+        // A double tap is two taps first. Keep what the first one changed,
+        // so the dive that follows can put it back.
+        const at = performance.now();
+        if (!tapUndo || at - tapUndo.at > DOUBLE_TAP_TIME) { tapUndo = { state: copyState(state), at }; }
         world.tap(state, viewPoint);
         changed();
       }
@@ -812,20 +847,44 @@ export function start(world) {
       pinch = null;
       setInteraction('zoom', false);
     }
-    if (pointers.size === 0) { setInteraction('rotation', false); }
+    if (pointers.size === 0) {
+      // Let go while moving, the picture glides on and slows to a stop.
+      const moving = interactions.has('rotation') && event.type === 'pointerup'
+        && performance.now() - lastDragAt < 80 && Math.hypot(...dragSpeed) > 0.3;
+      if (moving && !reducedMotion()) {
+        const speed = Math.hypot(...dragSpeed);
+        const most = Math.min(speed, 6) / speed;
+        glide = [dragSpeed[0] * most, dragSpeed[1] * most];
+      } else {
+        setInteraction('rotation', false);
+      }
+    }
   };
   canvas.addEventListener('pointerup', release);
   canvas.addEventListener('pointercancel', release);
   canvas.addEventListener('wheel', event => {
     event.preventDefault();
     setInteraction('zoom', true);
-    const factor = Math.exp(-event.deltaY * 0.0015);
+    const factor = clamp(Math.exp(-event.deltaY * 0.0015), 0.05, 20);
+    // A flat picture zooms about the pointer.
+    const box = canvas.getBoundingClientRect();
+    const viewPoint = world.zoomTarget ? Camera.viewPoint(event.clientX - box.left, event.clientY - box.top,
+      canvas.clientWidth, canvas.clientHeight, verticalShift) : null;
+    // The zoom is spread over the next few frames, so a notched wheel
+    // moves the picture smoothly and not in jumps.
+    wheelZoom = { factor: (wheelZoom?.factor ?? 1) * factor, viewPoint };
+    if (reducedMotion()) { zoomOn(1); }
+    clearTimeout(wheelTimer);
+    wheelTimer = setTimeout(() => setInteraction('zoom', false), 260);
+  }, { passive: false });
+
+  /** Carries out a share of the zoom the wheel has asked for. */
+  function zoomOn(share) {
+    if (!wheelZoom) { return; }
+    const factor = wheelZoom.factor ** share;
+    wheelZoom.factor /= factor;
     if (world.zoomTarget) {
-      // A flat picture zooms about the pointer.
-      const box = canvas.getBoundingClientRect();
-      const viewPoint = Camera.viewPoint(event.clientX - box.left, event.clientY - box.top,
-        canvas.clientWidth, canvas.clientHeight, verticalShift);
-      const goal = viewPoint && world.zoomTarget(viewPoint, state, clamp(factor, 0.05, 20));
+      const goal = wheelZoom.viewPoint && world.zoomTarget(wheelZoom.viewPoint, state, clamp(factor, 0.05, 20));
       if (goal) {
         animation = null;
         state = goal;
@@ -834,10 +893,27 @@ export function start(world) {
     } else {
       setZoom(state.cameraDistance, factor);
     }
-    clearTimeout(wheelTimer);
-    wheelTimer = setTimeout(() => setInteraction('zoom', false), 200);
-  }, { passive: false });
+    if (share >= 1 || Math.abs(Math.log(wheelZoom.factor)) < 0.002) { wheelZoom = null; }
+  }
+
+  /** The glide after a drag, and the wheel's zoom, a frame at a time. */
+  function coast(dt) {
+    if (dt <= 0) { return; }
+    if (glide) {
+      dragBy(glide[0] * dt, glide[1] * dt);
+      const slower = Math.exp(-dt / 0.22);
+      glide = [glide[0] * slower, glide[1] * slower];
+      if (Math.hypot(...glide) < 0.04) { glide = null; setInteraction('rotation', false); }
+    }
+    if (wheelZoom) { zoomOn(1 - Math.exp(-dt / 0.07)); }
+  }
   canvas.addEventListener('dblclick', event => {
+    // The two taps of a double tap chose nothing: only the dive was meant.
+    if (tapUndo && performance.now() - tapUndo.at < 2 * DOUBLE_TAP_TIME && (world.zoomTarget || world.distance)) {
+      state = tapUndo.state;
+      changed();
+    }
+    tapUndo = null;
     const box = canvas.getBoundingClientRect();
     focusAt(event.clientX - box.left, event.clientY - box.top);
   });
@@ -894,6 +970,8 @@ export function start(world) {
 
   function animate(frames) {
     interactions.clear();
+    glide = null;
+    wheelZoom = null;
     if (reducedMotion() && frames.length && !ride) {
       animation = null;
       state = copyState(frames.at(-1).target);
@@ -913,7 +991,16 @@ export function start(world) {
     }
     const elapsed = (now - animation.began) / 1000;
     const linear = frame.duration > 0 ? Math.min(elapsed / frame.duration, 1) : 1;
-    const eased = linear * linear * (3 - 2 * linear);
+    // A stretch starts gently if nothing was moving before it and ends
+    // gently if there is a pause after it; between two stretches that run
+    // on, the motion carries through without coming to a halt.
+    const before = animation.frames[animation.index - 1];
+    const fromRest = !before || before.hold > 0 || before.duration === 0;
+    const toRest = animation.index === animation.frames.length - 1 || frame.hold > 0;
+    const eased = fromRest && toRest ? linear * linear * (3 - 2 * linear)
+      : fromRest ? linear * linear * (2 - linear)
+        : toRest ? 1 - (1 - linear) * (1 - linear) * (1 + linear)
+          : linear;
     state = interpolate(animation.from, frame.target, eased, world, frame.direct);
     if (frame.caption !== undefined && ride && ride.caption !== frame.caption) {
       ride.caption = frame.caption;
@@ -976,6 +1063,7 @@ export function start(world) {
       <a class="back" href="${world.shelf?.href ?? 'index.html'}">‹ ${escapeHTML(world.shelf?.title ?? 'All worlds')}</a>
       <div><p class="eyebrow">${escapeHTML(world.title)}</p><h2 class="compact">${escapeHTML(world.formula)}</h2></div>
       <button id="tourStart">▶ Guided tour</button>
+      <button id="sightsStart">✦ Rides and sights</button>
       ${world.ride ? `<button id="rideStart">🎢 ${escapeHTML(world.ride.title)}</button>` : ''}
       ${world.controlGroups.map(g => section(g.title, g.note, g.controls.map(c => controlHTML(c, id++)).join(''))).join('')}
       ${section('View', world.viewNote, `
@@ -1036,6 +1124,7 @@ export function start(world) {
       button.addEventListener('click', event => { if (event.detail === 0) { step(...move); } });
     }
     $('tourStart').addEventListener('click', () => showTourStep(0));
+    $('sightsStart').addEventListener('click', () => showWelcome(false));
     $('rideStart')?.addEventListener('click', () => startRide());
     $('resetView').addEventListener('click', resetView);
     $('resetShape').addEventListener('click', resetShape);
@@ -1069,17 +1158,11 @@ export function start(world) {
       }
     }
     if (document.activeElement !== $('zoom')) { $('zoom').value = Math.log(magnification()); }
-    $('zoomValue').textContent = magnification().toFixed(1) + '×';
+    $('zoomValue').textContent = Format.zoom(magnification());
     if ($('palette')) { $('palette').value = String(state.palette); }
   }
 
-  $('controlsToggle').addEventListener('click', () => {
-    const hidden = !$('controls').hidden;
-    $('controls').hidden = hidden;
-    $('controlsToggle').textContent = hidden ? '☰' : '✕';
-    $('controlsToggle').setAttribute('aria-label', hidden ? 'Show controls' : 'Hide controls');
-    refreshControls();
-  });
+  $('controlsToggle').addEventListener('click', () => setControls($('controls').hidden));
 
   // MARK: Guided tour
 
@@ -1090,6 +1173,8 @@ export function start(world) {
 
   function showTourStep(index) {
     endRide();
+    endSight();
+    closeWelcome(false);
     tourIndex = index;
     const stop = world.tour[index];
     const last = index === world.tour.length - 1;
@@ -1133,6 +1218,129 @@ export function start(world) {
 
   $('tourPill').addEventListener('click', () => showTourStep(0));
 
+  // MARK: Welcome and sights
+
+  /** Places worth riding to: a world's own list, or the stops of its tour
+      (all but the last, which hands the world over). */
+  const sights = world.sights
+    ?? world.tour.slice(0, -1).map((stop, index) => ({ title: stop.title, build: stop.build, tourStop: index }));
+  /** True while the welcome card is up. */
+  let welcome = false;
+  /** The sight being ridden to, while its card is up. */
+  let sightIndex = null;
+
+  function setControls(visible) {
+    $('controls').hidden = !visible;
+    $('controlsToggle').textContent = visible ? '✕' : '☰';
+    $('controlsToggle').setAttribute('aria-label', visible ? 'Hide controls' : 'Show controls');
+    refreshControls();
+  }
+
+  /** A short flight in from farther off, to arrive at the view as it stands. */
+  function playIntro() {
+    const goal = copyState(state);
+    if (world.intro) { animate(world.intro(goal)); return; }
+    const flat = world.flatCentre || world.flatFocus;
+    const from = copyState(goal);
+    from.cameraDistance = clamp(goal.cameraDistance * (flat ? 2.2 : 1.7), ...distanceRange);
+    if (!flat) { from.yaw = goal.yaw - 0.7; }
+    if (reducedMotion()) { return; }
+    state = from;
+    animate([keyframe(goal, 5.5, 0, true)]);
+  }
+
+  /** The card that greets a visitor, and afterwards lists the rides. */
+  function showWelcome(arriving) {
+    endTour();
+    endRide();
+    endSight();
+    welcome = true;
+    $('tourCard').innerHTML = `
+      <header><p class="eyebrow">${arriving ? 'Welcome' : 'Rides and sights'}</p>
+        <button id="welcomeClose" class="plain" aria-label="Close">✕</button></header>
+      <h2>${escapeHTML(world.title)}</h2>
+      <div class="body"><p>${escapeHTML(world.summary ?? '')}</p></div>
+      <div class="welcome-actions">
+        <button id="welcomeTour" class="prominent">▶ Guided tour</button>
+        ${world.ride ? `<button id="welcomeRide">🎢 ${escapeHTML(world.ride.title)}</button>` : ''}
+        <button id="welcomeExplore">Explore on my own</button>
+      </div>
+      ${sights.length ? `<p class="caption">Or ride straight to a sight:</p>
+      <div class="sights">${sights.map((sight, index) =>
+        `<button class="small" data-sight="${index}">${escapeHTML(sight.title)}</button>`).join('')}</div>` : ''}`;
+    $('tourCard').hidden = false;
+    $('tourCard').classList.add('welcome');
+    $('modeButtons').hidden = true;
+    if (arriving) { setControls(false); }
+    $('welcomeClose').addEventListener('click', () => closeWelcome(false));
+    $('welcomeTour').addEventListener('click', () => showTourStep(0));
+    $('welcomeRide')?.addEventListener('click', () => startRide());
+    $('welcomeExplore').addEventListener('click', () => closeWelcome(true));
+    for (const button of $('tourCard').querySelectorAll('[data-sight]')) {
+      button.addEventListener('click', () => showSight(Number(button.dataset.sight)));
+    }
+    layout();
+    if (arriving) { playIntro(); }
+  }
+
+  /** Puts the welcome away; `explore` also opens the controls where there is room. */
+  function closeWelcome(explore) {
+    if (!welcome) { return; }
+    welcome = false;
+    $('tourCard').hidden = true;
+    $('tourCard').classList.remove('welcome');
+    $('modeButtons').hidden = false;
+    if (explore && !matchMedia('(max-width: 700px)').matches) { setControls(true); }
+    layout();
+  }
+
+  /** Rides to one sight: its tour stop's own flight, without the lesson. */
+  function showSight(index) {
+    endTour();
+    endRide();
+    closeWelcome(false);
+    sightIndex = index;
+    const sight = sights[index];
+    const last = index === sights.length - 1;
+    $('tourCard').innerHTML = `
+      <header><p class="eyebrow">Ride · ${index + 1} of ${sights.length}</p>
+        <button id="sightEnd" class="plain" aria-label="End ride">✕</button></header>
+      <h2>${escapeHTML(sight.title)}</h2>
+      <footer><button id="sightList">‹ Sights</button>
+        ${sight.tourStop === undefined ? '' : '<button id="sightAbout">About this</button>'}<span class="spacer"></span>
+        <span id="tourSpinner" class="spinner" aria-label="Moving"></span>
+        <button id="sightNext" class="prominent">${last ? '✓ Done' : 'Next ›'}</button></footer>`;
+    $('tourCard').hidden = false;
+    $('controls').classList.add('touring');
+    $('controlsToggle').hidden = true;
+    $('modeButtons').hidden = true;
+    $('sightEnd').addEventListener('click', endSight);
+    $('sightList').addEventListener('click', () => showWelcome(false));
+    $('sightAbout')?.addEventListener('click', () => showTourStep(sight.tourStop));
+    $('sightNext').addEventListener('click', () => (last ? endSight() : showSight(index + 1)));
+    const base = copyState(world.defaults);
+    if (world.tourKeepsPalette !== false) { base.palette = state.palette; }
+    animate(sight.build(base));
+    layout();
+  }
+
+  function endSight() {
+    if (sightIndex === null) { return; }
+    sightIndex = null;
+    animation = null;
+    $('tourCard').hidden = true;
+    $('controls').classList.remove('touring');
+    $('controlsToggle').hidden = false;
+    $('modeButtons').hidden = false;
+    layout();
+    changed();
+  }
+
+  if (sights.length) {
+    $('modeButtons').insertAdjacentHTML('beforeend', '<button id="sightsPill" class="pill">✦ Sights</button>');
+    $('sightsPill').addEventListener('click', () => showWelcome(false));
+  }
+
   // MARK: Ride
 
   /** The ride's settings are the viewer's own, kept between visits. */
@@ -1155,6 +1363,8 @@ export function start(world) {
   function startRide(seed) {
     if (!world.ride) { return; }
     endTour();
+    endSight();
+    closeWelcome(false);
     ride = { planner: world.ride.start(seed), settings: rideSettings(), paused: false, caption: '' };
     $('tourCard').innerHTML = `
       <header><p class="eyebrow">${escapeHTML(world.ride.title)} · ${escapeHTML(world.title)}</p>
@@ -1239,7 +1449,7 @@ export function start(world) {
   function layout() {
     const tall = canvas.clientHeight > canvas.clientWidth * 1.2;
     document.body.classList.toggle('tall', tall);
-    verticalShift = tall && (tourIndex !== null || ride !== null) ? 0.62 : 0;
+    verticalShift = tall && (tourIndex !== null || ride !== null || welcome || sightIndex !== null) ? 0.62 : 0;
     dirty = true;
   }
 
@@ -1254,7 +1464,7 @@ export function start(world) {
     change(edit) { edit(state); changed(); },
   }) ?? null;
   // On a phone the panel would cover most of the picture.
-  if (matchMedia('(max-width: 700px)').matches) { $('controlsToggle').click(); }
+  if (matchMedia('(max-width: 700px)').matches) { setControls(false); }
 
   if (location.hash.length > 1) { state = readScene(location.hash); }
   if (reducedMotion() && world.playback) { state.values[world.playback.play] = 0; }
@@ -1267,6 +1477,10 @@ export function start(world) {
     // ?ride starts the ride, and ?ride=7 always takes the same route.
     const seed = Number(query.get('ride'));
     startRide(query.get('ride') !== '' && Number.isInteger(seed) ? seed : undefined);
+  } else if (location.hash.length <= 1 && !query.has('plain')) {
+    // Arriving with no place in mind: a greeting, and a short flight in.
+    // (?plain opens the world as it stands, for pictures and tests.)
+    showWelcome(true);
   }
   layout();
   changed();
@@ -1274,6 +1488,7 @@ export function start(world) {
 
   const isPlaying = () => !!world.playback && state.values[world.playback.play] > 0.5;
   let previousFrame = null;
+  let behind = false;
   canvas.addEventListener('webglcontextlost', () => { animation = null; interactions.clear(); pointers.clear(); pinch = null; previousFrame = null; refreshSpinner(); });
   addEventListener('visibilitychange', () => {
     previousFrame = null;
@@ -1289,9 +1504,12 @@ export function start(world) {
       animate(ride.planner.next(state, ride.settings));
     }
     stepAnimation(now);
+    coast(dt);
     walkHeld(now, dt);
     // A world may walk on by itself, as after a tap in the Escher stairs.
     if (world.advance && tourIndex === null && world.advance(state, dt)) { changed(); }
+    // A picture that takes more work than one frame allows catches up here.
+    if (world.catchUp?.(state)) { changed(); behind = true; } else if (behind) { behind = false; changed(); }
     if (advancePlayback(state, world.playback, dt)) { dirty = true; scheduleURL(); }
     // Worlds that move on their own are drawn continuously; the rest only
     // when something changes.

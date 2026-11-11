@@ -215,9 +215,9 @@ export const world = {
     ]),
     group('The rooms', `
       Every room is a regular dodecahedron, with twelve pentagon
-      walls. Three rooms meet round every beam, where flat space
-      would need angles of 116.6° and has only room for 360°; here
-      each wall meets the next at exactly 120°. 120 rooms fill the
+      walls. Three rooms meet round every beam. In flat space a
+      dodecahedron's walls meet at 116.6°, so three of them would leave a
+      gap; here each wall meets the next at exactly 120°. 120 rooms fill the
       whole space: the 120-cell, a regular solid of four dimensions.
 
       Seen from one room, the others come in layers: 12 next door,

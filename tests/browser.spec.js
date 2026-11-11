@@ -1,5 +1,8 @@
 import { test, expect } from '@playwright/test';
-const worlds = ['mandelbulb', 'menger', 'hyperbolic-plane', 'hyperbolic-space', 'recursive-room', 'escher', 'babel', 'gallery', 'four-d', 'quaternion-julia', 'topology', 'eversion', 'attractors', 'mandelbrot', 'logistic', 'flatland', 'newton', 'henon', 'chaos-game', 'pendulum', 'penrose', 'knots', 'spherical-space', 'geodesics', 'lorentz', 'apollonian'];
+import { readdirSync } from 'node:fs';
+// Every world page there is: all the HTML files but the two library pages.
+const worlds = readdirSync(new URL('..', import.meta.url)).filter(name => name.endsWith('.html'))
+  .map(name => name.slice(0, -5)).filter(name => name !== 'index' && name !== 'flat');
 async function ready(page) {
   await expect(page.locator('#view')).toHaveAttribute('data-graphics', 'ready');
   await expect(page.locator('#controls .site-tools')).toBeAttached();
@@ -96,6 +99,7 @@ for (const world of ['menger', 'mandelbulb', 'babel', 'gallery', 'eversion']) {
 
 test('bookmarks retain a view in this browser', async ({ page }) => {
   await page.goto('/menger.html'); await ready(page);
+  await page.getByRole('button', { name: 'Explore on my own', exact: true }).click();
   await page.getByRole('button', { name: 'Bookmark view', exact: true }).click();
   await page.getByRole('button', { name: 'Bookmarks', exact: true }).click();
   await expect(page.getByRole('dialog').getByRole('link', { name: 'Menger sponge', exact: true })).toBeVisible();
@@ -105,7 +109,8 @@ test('Mandelbrot ride moves by itself, pauses for a drag, and ends cleanly', asy
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.goto('/mandelbrot.html'); await ready(page);
-  await page.locator('#ridePill').click();
+  // The welcome card offers the ride on arrival.
+  await page.locator('#welcomeRide').click();
   await expect(page.locator('#tourCard')).toBeVisible();
   await expect(page.locator('#rideCaption')).not.toBeEmpty();
   await expect.poll(() => page.locator('#rideZoom').textContent()).not.toBe('1.00×');
@@ -122,4 +127,42 @@ test('Mandelbrot ride moves by itself, pauses for a drag, and ends cleanly', asy
   await expect(page.locator('#tourCard')).toBeHidden();
   await expect(page.locator('#ridePill')).toBeVisible();
   expect(errors).toEqual([]);
+});
+
+test('a world greets a visitor, rides to a sight, and a double click dives without choosing', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.goto('/mandelbrot.html'); await ready(page);
+  await expect(page.locator('#tourCard')).toContainText('Welcome');
+  await expect(page.locator('#controls')).toBeHidden();
+  await page.locator('[data-sight="4"]').click();
+  await expect(page.locator('#tourCard')).toContainText('Ride · 5 of');
+  await page.getByRole('button', { name: 'End ride', exact: true }).click();
+  await expect(page.locator('#sightsPill')).toBeVisible();
+  // A link to a place opens it as it is, with no greeting.
+  await page.goto('/mandelbrot.html?plain'); await ready(page);
+  await expect(page.locator('#tourCard')).toBeHidden();
+  const view = await page.locator('#view').boundingBox();
+  await page.mouse.dblclick(view.x + view.width * 0.3, view.y + view.height * 0.3);
+  await expect(page).toHaveURL(/#v=/);
+  // The dive moved the centre and left c (values 3 and 4) at its defaults.
+  const values = decodeURIComponent(new URL(page.url()).hash).match(/v=([^&]*)/)[1].split(',').map(Number);
+  expect(values[3] ?? -0.12).toBeCloseTo(-0.12, 6);
+  expect(values[4] ?? 0.75).toBeCloseTo(0.75, 6);
+  expect(errors).toEqual([]);
+});
+
+test('a knot opened fully relaxed catches up by itself', async ({ page }) => {
+  await page.goto('/knots.html#v=2,1'); await ready(page);
+  const crossings = page.locator('.readout', { hasText: 'Crossings seen' }).locator('.value');
+  await expect(crossings).toHaveText('3');
+  // Relaxing takes 3,000 steps, a few hundred to a frame, and the picture
+  // must keep going until they are done: afterwards, prodding it by changing
+  // the colouring and back finds nothing left to do.
+  await page.waitForTimeout(1500);
+  const settled = await page.locator('#view').screenshot();
+  await page.locator('#palette').selectOption('1');
+  await page.locator('#palette').selectOption('0');
+  await page.waitForTimeout(500);
+  expect(Buffer.compare(settled, await page.locator('#view').screenshot())).toBe(0);
 });

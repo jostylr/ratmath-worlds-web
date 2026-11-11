@@ -67,6 +67,17 @@ The gallery's formula field reports stack underflow and overflow, maximum stack
 use, and how its results become colours. Invalid edits leave the last working
 picture visible.
 
+## Arriving in a world
+
+A world opened with nothing after `#` greets the visitor: a card with what the
+world is, the ways in (guided tour, ride, explore alone) and its sights to ride
+to, while the picture flies in from farther off. Touching the picture puts the
+card away. A link to a place (`#…`), `?tourStep=` and `?ride` skip the
+greeting, and `?plain` opens the world as it stands, for pictures and tests.
+The pictures on the library's cards live in `thumbs/` and are made by
+`shared/make-thumbnails.mjs` in the supervisor repository. Babel, the gallery
+and the Mandelbulb have pages of their own and no greeting yet.
+
 ## Checks
 
 The site itself still needs no dependencies or build step. Development checks

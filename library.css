@@ -42,3 +42,15 @@ body.library {
 .card.shelf .count { color: var(--accent); font-weight: 600; }
 .library .back { color: var(--accent); text-decoration: none; font-weight: 600; font-size: 0.9rem; margin-bottom: 8px; }
 .library .back:hover { text-decoration: underline; }
+
+/* The picture at the head of a world's card. */
+.card .thumb {
+  display: block;
+  width: calc(100% + 36px);
+  height: auto;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+  margin: -18px -18px 4px;
+  border-radius: 20px 20px 0 0;
+  background: #05060c;
+}

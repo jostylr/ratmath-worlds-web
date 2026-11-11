@@ -278,10 +278,13 @@ vec3 fDrawMarkers(
 // v[1]: picture (0 Mandelbrot set, 1 Julia set, between the two faded
 //       together), c.x, c.y, small picture flag
 // v[2]: for the Mandelbrot set: the last step of the reference orbit, and
-//       where the reference c lies, measured from the centre of the view
+//       where the reference c lies, measured from the centre of the view.
+//       For a Julia set: the last step of the orbit of zero, where the
+//       orbit of the view's centre starts in data, its last step, and 1.
 //
 // data holds the reference orbit: z₀, z₁, … for one c in the view, worked
-// out by the app with twice the digits a shader has.
+// out by the app with twice the digits a shader has. For a Julia set it
+// holds the orbit of zero and then the orbit of the centre of the view.
 //
 // Markers are the flat worlds' own (see Flat2D.h), in view coordinates.
 
@@ -304,11 +307,24 @@ vec2 mandelEscape(vec2 z, vec2 c, int limit) {
     return vec2(-1.0, first);
 }
 
+// True for c inside the big heart or the disc to its left, where the answers
+// are known to stay without running the rule. Those two hold most of the
+// black in a wide view, and black is the dearest colour: every such point
+// would otherwise use the whole step limit.
+bool mandelInside(vec2 c) {
+    float q = (c.x - 0.25) * (c.x - 0.25) + c.y * c.y;
+    return q * (q + (c.x - 0.25)) < 0.25 * c.y * c.y
+        || (c.x + 1.0) * (c.x + 1.0) + c.y * c.y < 0.0625;
+}
+
 // The same count for the c that lies dc from the reference c, found from
 // its difference to the reference orbit. The difference is tiny when the
 // view is, so the shader's short numbers describe it exactly where they
 // could not tell two values of c apart.
-vec2 mandelDeep(vec2 dc, int limit, int last) {
+vec2 mandelDeep(vec2 dc, float scale, int limit, int last) {
+    // In a wide view the shader's own digits place c well enough for the
+    // short cut; the reference's first step is its c.
+    if (scale > 1e-3 && last >= 1 && mandelInside(wData(1).xy + dc)) { return vec2(-1.0, -1.0); }
     vec2 d = vec2(0.0);
     int n = 0;
     float first = -1.0;
@@ -331,6 +347,43 @@ vec2 mandelDeep(vec2 dc, int limit, int last) {
         // (ref + d)² + c, less the reference's own next value.
         d = vec2(2.0 * (ref.x * d.x - ref.y * d.y) + d.x * d.x - d.y * d.y + dc.x,
                    2.0 * (ref.x * d.y + ref.y * d.x) + 2.0 * d.x * d.y + dc.y);
+        n += 1;
+    }
+    if (first >= 0.0) { return vec2(float(limit), first); }
+    return vec2(-1.0, first);
+}
+
+// The same for a Julia set, where c is fixed and the pixels are different
+// starting points. d is how far this pixel starts from the centre of the
+// view, whose own orbit is the reference to begin with (it starts at
+// startA in data and has lastA steps). Every orbit of a Julia set
+// obeys the one rule, so the count can change to any other reference on the
+// way: when the difference outgrows the orbit, or the centre's orbit runs
+// out, it carries on against the orbit of zero, at the start of data.
+vec2 juliaDeep(vec2 d, int limit, int lastB, int startA, int lastA) {
+    int n = 0;
+    int base = startA;
+    int last = lastA;
+    float first = -1.0;
+    for (int i = 0; i < limit; ++i) {
+        int at = base + n;
+        vec2 ref = wData(at).xy;
+        vec2 z = ref + d;
+        float r2 = dot(z, z);
+        if (first < 0.0 && r2 > 4.0) { first = float(i); }
+        if (r2 > 256.0) {
+            return vec2(float(i) + 2.0 - log2(0.5 * log2(r2)), first);
+        }
+        if (r2 < dot(d, d) || n >= last) {
+            d = z;
+            n = 0;
+            base = 0;
+            last = lastB;
+            ref = vec2(0.0);
+        }
+        // (ref + d)², less the reference's own square: c cancels.
+        d = vec2(2.0 * (ref.x * d.x - ref.y * d.y) + d.x * d.x - d.y * d.y,
+                   2.0 * (ref.x * d.y + ref.y * d.x) + 2.0 * d.x * d.y);
         n += 1;
     }
     if (first >= 0.0) { return vec2(float(limit), first); }
@@ -366,10 +419,15 @@ vec3 mandelSample(vec2 uv, WorldUniforms u) {
     float julia = saturate(u.v[1].x);
     vec3 color = vec3(0.0);
     if (julia < 1.0) {
-        color = mandelColor(mandelDeep(uv * u.v[0].z - u.v[2].yz, limit, int(u.v[2].x)), palette);
+        color = mandelColor(mandelDeep(uv * u.v[0].z - u.v[2].yz, u.v[0].z, limit, int(u.v[2].x)), palette);
     }
     if (julia > 0.0) {
-        vec3 other = mandelColor(mandelEscape(u.v[0].xy + uv * u.v[0].z, u.v[1].yz, limit), palette);
+        // A Julia set on its own is measured against reference orbits, as
+        // the Mandelbrot set is; fading in over it, it is drawn directly.
+        vec2 escape = u.v[2].w > 0.5
+            ? juliaDeep(uv * u.v[0].z, limit, int(u.v[2].x), int(u.v[2].y), int(u.v[2].z))
+            : mandelEscape(u.v[0].xy + uv * u.v[0].z, u.v[1].yz, limit);
+        vec3 other = mandelColor(escape, palette);
         color = mix(color, other, julia);
     }
     return color;
@@ -394,7 +452,7 @@ vec3 mandelInset(vec3 color, vec2 uv, float pixel, WorldUniforms u) {
     int palette = int(u.budget.z);
     if (u.v[1].x > 0.5) {
         vec2 p = vec2(-0.6, 0.0) + local * 1.45;
-        vec3 inner = mandelColor(mandelEscape(vec2(0.0), p, limit), palette);
+        vec3 inner = mandelColor(mandelInside(p) ? vec2(-1.0) : mandelEscape(vec2(0.0), p, limit), palette);
         float away = length(p - c) / 1.45;
         inner = mix(inner, vec3(0.02), smoothstep(0.075, 0.060, away));
         return mix(inner, vec3(1.0, 0.85, 0.25), smoothstep(0.052, 0.040, away));

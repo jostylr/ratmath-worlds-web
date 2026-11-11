@@ -226,3 +226,13 @@ test('Every JavaScript module parses and every local page asset/link exists', as
     }
   }
 });
+
+test('The library says how many 2D worlds there are, and every card has its picture', async () => {
+  const { readFile, access } = await import('node:fs/promises');
+  const root = new URL('../', import.meta.url);
+  const [index, flat] = await Promise.all(['index.html', 'flat.html'].map(name => readFile(new URL(name, root), 'utf8')));
+  const cards = [...flat.matchAll(/<a class="card" href="([a-z0-9-]+)\.html">/g)].map(match => match[1]);
+  assert.equal(Number(index.match(/(\d+) worlds inside/)[1]), cards.length);
+  const all = cards.concat([...index.matchAll(/<a class="card" href="([a-z0-9-]+)\.html">/g)].map(match => match[1]));
+  for (const world of all) { await access(new URL(`thumbs/${world}.jpg`, root)); }
+});

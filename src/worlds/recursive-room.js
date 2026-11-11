@@ -292,7 +292,7 @@ export const world = {
 
       The copies have sizes 1, k, k², k³, … so although there are
       infinitely many, placed end to end they have a finite total
-      depth, 4k ⁄ (1 − k). They close in on one point, the fixed
+      depth, 4 ⁄ (1 − k). They close in on one point, the fixed
       point, which S leaves where it is.`, [
       slider('Scale, k', SCALE, [0.2, 0.6], value => value.toFixed(2)),
       slider('Twist, θ', TWIST, [-Math.PI / 2, Math.PI / 2], value => (value * 180 / Math.PI).toFixed(0) + '°'),

@@ -104,7 +104,11 @@ const tour = [
       coloured.values[DOPPLER] = 1;
       const behind = copyState(coloured);
       behind.yaw = Math.PI;
-      return [keyframe(plain, 4.0, 3.0), keyframe(coloured, 2.0, 4.0), keyframe(behind, 6.0)];
+      // It ends looking across the way you travel, with the blue of ahead
+      // and the red of behind both in view.
+      const across = copyState(coloured);
+      across.yaw = 1.15;
+      return [keyframe(plain, 4.0, 3.0), keyframe(coloured, 2.0, 4.0), keyframe(behind, 6.0, 2.5), keyframe(across, 5.0)];
     },
   },
   {
@@ -161,9 +165,9 @@ export const world = {
   controlGroups: [
     group('Speed', `
       β is your speed as a fraction of the speed of light. γ, the
-      Lorentz factor, is 1 ⁄ √(1 − β²): how much your clocks run
-      slow and the lattice's lengths along your path shrink, as
-      measured from the lattice.
+      Lorentz factor, is 1 ⁄ √(1 − β²): how much your clocks run slow as
+      measured from the lattice, and how much the lattice's lengths along
+      your path shrink as measured by you.
 
       The picture always shows what reaches your eye at one instant.
       The lattice is at rest, so each ray is followed back through

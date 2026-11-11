@@ -487,8 +487,8 @@ export const world = {
       y and z describe the temperature differences. ρ is how hard
       it is heated.
 
-      Below ρ ≈ 24.74 every path spirals into one of two steady
-      states. Above it they never settle: the path circles one
+      Between ρ = 1 and about 24.74 almost every path ends in one of two
+      steady states, though near the top of that range some wander for ever. Above it they never settle: the path circles one
       state, then the other, in an order that never repeats.
       Rössler's system is a simpler rule built to do the same with
       a single spiral and a fold.`, [

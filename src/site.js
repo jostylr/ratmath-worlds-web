@@ -6,6 +6,7 @@ export function sceneURL(hash) {
   query.delete('tourStep');
   query.delete('explorer');
   query.delete('ride');
+  query.delete('plain');
   return location.pathname + (query.size ? '?' + query : '') + hash;
 }
 

@@ -95,6 +95,21 @@ function shapeOf(p, progress) {
   return list[Math.min(wanted, list.length - 1)];
 }
 
+/** How far the relaxation asked for has actually got: every picture made
+    from the shape is kept under this, so none outlives the shape it shows. */
+function reached(state) {
+  const wanted = Math.round(Math.min(Math.max(state.values[RELAX], 0), 1) * (STEPS / EVERY));
+  return Math.min(wanted, (relaxed.get(preset(state))?.length ?? 1) - 1);
+}
+
+/** True while the shape asked for has not been reached, after working a
+    little further toward it. */
+function isBehind(state) {
+  shapeOf(preset(state), state.values[RELAX]);
+  const wanted = Math.round(Math.min(Math.max(state.values[RELAX], 0), 1) * (STEPS / EVERY));
+  return (relaxed.get(preset(state))?.length ?? 0) <= wanted;
+}
+
 function shape(state) {
   const x = shapeOf(preset(state), state.values[RELAX]);
   const reach = Math.max(...x.map(len));
@@ -158,8 +173,9 @@ function diagram(c) {
 
 let pictureCache = { key: '', value: null };
 function picture(state) {
-  const key = [state.values[KNOT], state.values[RELAX], state.yaw, state.pitch].join(',');
-  if (key !== pictureCache.key) { pictureCache = { key, value: diagram(crossings(shape(state), eye(state))) }; }
+  const x = shape(state);
+  const key = [state.values[KNOT], reached(state), state.yaw, state.pitch].join(',');
+  if (key !== pictureCache.key) { pictureCache = { key, value: diagram(crossings(x, eye(state))) }; }
   return pictureCache.value;
 }
 
@@ -245,10 +261,10 @@ const tube = { vertices, indices, revision: '' };
 
 function mesh(state) {
   const colourKey = state.palette === 1 ? [state.yaw, state.pitch].join(',') : '';
-  const key = [state.values[KNOT], state.values[RELAX], state.palette, colourKey].join('|');
+  const x = shape(state);
+  const key = [state.values[KNOT], reached(state), state.palette, colourKey].join('|');
   if (key === tube.revision) { return tube; }
   tube.revision = key;
-  const x = shape(state);
   const n = x.length;
   let colours = null;
   let starts = [];
@@ -488,5 +504,6 @@ export const world = {
   cameraBacksAwayWhenMoving: false,
   tourKeepsPalette: false,
   mesh,
+  catchUp: isBehind,
   pitchRange: [-1.5, 1.5],
 };

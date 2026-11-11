@@ -325,7 +325,7 @@ export const world = {
       the surface has two sides. With an odd number it arrives
       reversed, and the surface has only one. A band with one
       half-twist is the Möbius band. A figure-eight tube with one
-      is a Klein bottle: a Möbius band with its edge closed up.`, [
+      is a Klein bottle: two Möbius bands joined along their edges.`, [
       picker('Surface', SURFACE, SURFACE_NAMES),
       slider('Half-twists', TWISTS, [0, 5], value => String(Math.round(value)), isSwept),
       readout('Sides', state => (isSwept(state) ? (twistCount(state) % 2 === 0 ? '2' : '1') : '1')),

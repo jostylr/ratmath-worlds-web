@@ -76,7 +76,10 @@ const tour = [
       start.palette = 1;
       const end = copyState(start);
       end.values[W] = 1.5;
-      return [keyframe(start, 2.0, 0.5), keyframe(end, 14.0)];
+      // It ends back in the middle, so the stop is not left on an empty view.
+      const rest = copyState(start);
+      rest.values[W] = 0;
+      return [keyframe(start, 2.0, 0.5), keyframe(end, 14.0, 1.0), keyframe(rest, 4.0)];
     },
   },
   {
@@ -97,7 +100,9 @@ const tour = [
       start.values[W] = -1.3;
       const end = copyState(start);
       end.values[W] = 1.3;
-      return [keyframe(start, 2.0, 1.0), keyframe(end, 10.0)];
+      const rest = copyState(start);
+      rest.values[W] = 0;
+      return [keyframe(start, 2.0, 1.0), keyframe(end, 10.0, 1.0), keyframe(rest, 3.0)];
     },
   },
   {
@@ -167,7 +172,8 @@ const tour = [
       middle.values[W] = 0;
       const end = copyState(start);
       end.values[W] = 1.9;
-      return [keyframe(start, 3.0, 0.5), keyframe(middle, 9.0, 2.5), keyframe(end, 9.0)];
+      // It ends back on the octahedron, half-way through.
+      return [keyframe(start, 3.0, 0.5), keyframe(middle, 9.0, 2.5), keyframe(end, 9.0, 1.0), keyframe(middle, 5.0)];
     },
   },
   {

@@ -33,3 +33,9 @@ button.plain { background: none; padding: 4px 7px; font-size: 1.15rem; line-heig
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+
+/* The welcome card, and the rides it offers. */
+#tourCard.welcome .body { max-height: 120px; }
+.welcome-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.sights { display: flex; flex-wrap: wrap; gap: 6px; max-height: 132px; overflow-y: auto; }
+.sights button { border-radius: 999px; }

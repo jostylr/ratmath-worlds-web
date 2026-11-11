@@ -129,8 +129,8 @@ const tour = [
 
       Now c gains an imaginary part and becomes −0.12 + 0.75i. The
       solid loses its roundness, and the cut face changes into the
-      Julia set for that complex number: the three-eared shape called
-      Douady's rabbit.`,
+      Julia set for that complex number: the shape called Douady's rabbit,
+      whose lobes meet in threes.`,
     tryIt: 'Cut → Depth; Constant c → i',
     build(base) {
       const whole = withConstant(base, [-1, 0, 0, 0]);
