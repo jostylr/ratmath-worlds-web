@@ -1,5 +1,10 @@
 # Publishes this static site to GitHub Pages.
 # One-time setup on GitHub: Settings → Pages → Source: "GitHub Actions".
+#
+# A push runs only the quick checks (the unit tests, a few seconds, with
+# nothing to install) and then publishes. The browser tests are run on your
+# own machine before pushing: `npm run check`, or let the pre-push hook do it
+# (see README, "Checks").
 name: Deploy to GitHub Pages
 
 on:
@@ -20,40 +25,32 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # A pull request is only checked.
   check:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-          cache: npm
-      - run: npm ci
       - run: npm test
-      - run: npx playwright install --with-deps chromium
-      - run: npm run test:browser
-      - uses: actions/upload-artifact@v7
-        if: failure()
-        with:
-          name: browser-test-results
-          path: test-results
-      - run: npm run prepare-site
-      - uses: actions/upload-artifact@v7
-        with:
-          name: verified-site
-          path: _site
-  deploy:
+
+  # A push to main is checked and published in one go.
+  publish:
     if: github.event_name != 'pull_request'
-    needs: check
     runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
-          name: verified-site
-          path: _site
+          node-version: 24
+      # The unit tests import only the site's own files, so nothing is installed.
+      - run: npm test
+      - run: npm run prepare-site
       - uses: actions/configure-pages@v6
       - uses: actions/upload-pages-artifact@v5
         with:

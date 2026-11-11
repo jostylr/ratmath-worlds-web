@@ -30,9 +30,11 @@ addresses remain readable.
 
 The repository includes a GitHub Pages workflow
 (`.github/workflows/pages.yml`) that checks it on pull requests and publishes
-successful pushes to `main`. Deployment waits for the numerical regressions,
-Babel reference vectors, local link checks and Chromium browser scenarios.
-Only HTML, CSS, the favicon and `src/` go into the published `_site/` folder;
+successful pushes to `main`. Deployment waits only for the quick checks: the
+numerical regressions, Babel reference vectors and local link checks, a few
+seconds in all. The Chromium browser scenarios are run on your own machine
+before pushing (see Checks).
+Only HTML, CSS, the favicon, `thumbs/` and `src/` go into the published `_site/` folder;
 repository files and tests stay out of the deployment. After
 pushing the repository to GitHub, switch it on once under
 **Settings → Pages → Source: GitHub Actions**. The site then appears at
@@ -91,23 +93,27 @@ This covers every world's tour states and scene serialization, malformed input,
 playback, formula evaluation rules, graphics recovery and XR startup cleanup.
 It also runs the Swift/JavaScript Babel reference vectors.
 
-The Chromium browser suite covers all world pages, tours, sharing, the phone
-reader, empty shelves, keyboard navigation, bookmarks and actual WebGL context
-loss/restoration. To run it locally:
+The Chromium browser suite covers all world pages, tours, the welcome and
+rides to sights, sharing, the phone reader, empty shelves, keyboard navigation,
+bookmarks and actual WebGL context loss/restoration. It takes about a minute
+and is run on your own machine, not on GitHub. Once:
 
 ```bash
 npm ci
 npx playwright install chromium
-npm run test:browser
 ```
 
-`tests/browser-smoke.html` also provides buttons for manually interrupting and
-restoring graphics in the main renderer types. Test files are excluded from the
-published site. `npm run prepare-site` prepares `_site/` for a static host.
+Then, before pushing, everything together:
 
-Real iPhone/Android performance, Safari behavior and headset interaction still
-need device testing. The desktop in-app browser smoke checks do not establish
-those results. Immersive mode remains explicitly experimental.
+```bash
+npm run check
+```
+
+`npm run hooks` switches on a pre-push hook that does this for you on every
+push (`git push --no-verify` skips it once). A push to GitHub runs only
+`npm test`, which takes a few seconds and installs nothing, and then
+publishes; so a push that skips the local check can publish a page the browser
+tests would have caught.
 
 ## Mandelbulb
 
