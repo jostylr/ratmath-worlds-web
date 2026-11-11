@@ -389,6 +389,7 @@ const PAGE = `
   <canvas id="view" tabindex="0" role="img"></canvas>
   <div id="labels" aria-hidden="true"></div>
   <aside id="controls" class="panel" aria-label="Controls"></aside>
+  <aside id="explorer" class="panel" aria-label="Explorer" hidden></aside>
   <button id="controlsToggle" class="prominent icon round" aria-label="Hide controls">✕</button>
   <nav id="modeButtons"><button id="tourPill" class="prominent pill">▶ Guided tour</button></nav>
   <article id="tourCard" class="panel" aria-live="polite" hidden></article>
@@ -444,6 +445,12 @@ export function start(world) {
   const theRide = world.ride ?? (sights.length ? sightsRide(world, sights) : null);
 
   let state = copyState(world.defaults);
+  /** The explorer: whether it is open, its chosen table row, and its report
+      for the point and state as they stand (see the Explorer section). */
+  let explorerOpen = false;
+  let selectedRow = 0;
+  let currentReport = null;
+  let explorerKey = '';
   /** The explorer's point in the app; there is no explorer here, but worlds
       that walk carry it along. */
   const probe = [0, 0, 0, 0];
@@ -570,7 +577,8 @@ export function start(world) {
   }
 
   const shaderValues = () => {
-    const values = world.shaderValues ? world.shaderValues(state, null, 0) : state.values;
+    const values = world.shaderValues
+      ? world.shaderValues(state, explorerOpen ? probe : null, selectedRow) : state.values;
     const out = new Float32Array(VALUE_COUNT);
     for (let i = 0; i < VALUE_COUNT; i += 1) { out[i] = finite(values[i] ?? 0); }
     return out;
@@ -661,7 +669,8 @@ export function start(world) {
     const distance = Number.isFinite(state.cameraDistance)
       ? clamp(state.cameraDistance, ...distanceRange) : world.defaults.cameraDistance;
     const time = (now - began) / 1000;
-    const markers = packedMarkers(world.overlayMarkers?.(state) ?? [], distance);
+    const markers = packedMarkers(
+      explorerOpen ? report()?.markers ?? [] : world.overlayMarkers?.(state) ?? [], distance);
 
     const resolutionAndCone = [width, height, 0.0003, verticalShift];
     const camera = [yaw, pitch, distance, quality];
@@ -715,7 +724,7 @@ export function start(world) {
     };
 
     // Curves and particles add their light to whatever is behind them.
-    const lines = world.lines?.(state, null, time);
+    const lines = world.lines?.(state, explorerOpen ? probe : null, time);
     if (lines && lines.count > 0) {
       shared(programs.lines);
       gl.bindVertexArray(lineBuffer.array);
@@ -727,7 +736,7 @@ export function start(world) {
       gl.disable(gl.BLEND);
     }
 
-    const mesh = world.mesh?.(state, null, time);
+    const mesh = world.mesh?.(state, explorerOpen ? probe : null, time);
     if (mesh && mesh.indices.length > 0) {
       shared(programs.mesh);
       gl.uniform4fv(programs.mesh.uniforms.uBudget, budget);
@@ -794,6 +803,7 @@ export function start(world) {
     endRide();
     endSight();
     closeWelcome(false);
+    closeExplorer();
     animation = null;
     state = readScene(location.hash);
     changed();
@@ -802,7 +812,9 @@ export function start(world) {
   /** Everything that depends on the state is brought up to date. */
   function changed() {
     dirty = true;
+    currentReport = null;
     refreshControls();
+    refreshExplorer();
     scheduleURL();
   }
 
@@ -945,7 +957,12 @@ export function start(world) {
     dragBy(dx / unit, dy / unit);
   });
   const release = event => {
-    if (event.type === 'pointerup' && world.tap && pointers.size === 1 && !pinch
+    if (event.type === 'pointerup' && explorerOpen && pointers.size === 1 && !pinch
+        && !interactions.has('rotation')) {
+      // With the explorer open, a tap puts its point there.
+      const box = canvas.getBoundingClientRect();
+      pickProbe(event.clientX - box.left, event.clientY - box.top);
+    } else if (event.type === 'pointerup' && world.tap && pointers.size === 1 && !pinch
         && !interactions.has('rotation')) {
       // A press that never became a drag is a tap on the picture.
       const box = canvas.getBoundingClientRect();
@@ -1048,6 +1065,13 @@ export function start(world) {
   window.addEventListener('keydown', event => {
     if (event.target.closest?.('input, textarea, select, dialog') || event.metaKey || event.ctrlKey || event.altKey) { return; }
     const key = event.key.toLowerCase();
+    // With the explorer open, the arrows move its point (Shift: away and nearer).
+    if (explorerOpen && key.startsWith('arrow') && world.explorer.coordinates.length) {
+      event.preventDefault();
+      const [right, up] = { arrowleft: [-1, 0], arrowright: [1, 0], arrowup: [0, 1], arrowdown: [0, -1] }[key];
+      if (event.shiftKey && up !== 0) { moveProbe(0, 0, up); } else { moveProbe(right, up, 0); }
+      return;
+    }
     const move = KEYS[key];
     if (!move || !world.step || tourIndex !== null) { return; }
     event.preventDefault();
@@ -1182,6 +1206,8 @@ export function start(world) {
       <div><p class="eyebrow">${escapeHTML(world.title)}</p><h2 class="compact">${escapeHTML(world.formula)}</h2></div>
       <button id="tourStart">▶ Guided tour</button>
       <button id="sightsStart">✦ Rides and sights</button>
+      ${world.explorer ? `<button id="explorerStart">ƒ ${escapeHTML(world.explorer.buttonTitle)}</button>
+      <p class="caption">${escapeHTML(world.explorer.blurb)}</p>` : ''}
       ${theRide ? `<button id="rideStart">🎢 ${escapeHTML(theRide.title)}</button>` : ''}
       ${world.controlGroups.map(g => section(g.title, g.note, g.controls.map(c => controlHTML(c, id++)).join(''))).join('')}
       ${section('View', world.viewNote, `
@@ -1243,6 +1269,7 @@ export function start(world) {
     }
     $('tourStart').addEventListener('click', () => showTourStep(0));
     $('sightsStart').addEventListener('click', () => showWelcome(false));
+    $('explorerStart')?.addEventListener('click', () => (explorerOpen ? closeExplorer() : openExplorer()));
     $('rideStart')?.addEventListener('click', () => startRide());
     $('resetView').addEventListener('click', resetView);
     $('resetShape').addEventListener('click', resetShape);
@@ -1293,6 +1320,7 @@ export function start(world) {
     endRide();
     endSight();
     closeWelcome(false);
+    closeExplorer();
     tourIndex = index;
     const stop = world.tour[index];
     const last = index === world.tour.length - 1;
@@ -1336,6 +1364,171 @@ export function start(world) {
 
   $('tourPill').addEventListener('click', () => showTourStep(0));
 
+  // MARK: Explorer
+
+  // The numerical explorer of a world, as in the app (WorldExplorer and
+  // WorldExplorerPanel): one point, the verdict on it, a table of steps, and
+  // the chosen step worked out line by line.
+  function report() {
+    if (!explorerOpen) { return null; }
+    currentReport ??= world.explorer.report(probe, state, selectedRow);
+    return currentReport;
+  }
+
+  function setProbe(next) {
+    if (!next || !next.every(Number.isFinite)) { return; }
+    for (let i = 0; i < 4; i += 1) { probe[i] = next[i] ?? 0; }
+    changed();
+  }
+
+  /** Puts the point where the picture was tapped. */
+  function pickProbe(x, y) {
+    const explorer = world.explorer;
+    if (explorer.pick) {
+      const viewPoint = Camera.viewPoint(x, y, canvas.clientWidth, canvas.clientHeight, verticalShift);
+      const point = viewPoint && explorer.pick(viewPoint, state);
+      if (point) { setProbe(point); }
+    } else if (!explorer.move && world.distance) {
+      const direction = Camera.rayDirection(x, y, canvas.clientWidth, canvas.clientHeight, verticalShift, state);
+      const hit = direction && Camera.raycast(Camera.position(state), direction, state, world.distance);
+      if (hit) { setProbe([...hit.point, probe[3]]); }
+    }
+  }
+
+  /** Moves the point in view directions: right and up across the screen,
+      away into it. */
+  function moveProbe(right, up, away) {
+    const explorer = world.explorer;
+    animation = null;
+    if (explorer.move) {
+      setProbe(explorer.move([...probe], right, up, away, state));
+      return;
+    }
+    const size = 0.04 * clamp(1 / magnification(), 0.002, 1);
+    const axis = v => Camera.rotate(v, state.yaw, state.pitch);
+    const r = axis([1, 0, 0]), u = axis([0, 1, 0]), b = axis([0, 0, 1]);
+    setProbe([0, 1, 2].map(i => probe[i] + (r[i] * right + u[i] * up - b[i] * away) * size).concat(probe[3]));
+  }
+
+  function openExplorer() {
+    if (!world.explorer) { return; }
+    endTour();
+    endRide();
+    endSight();
+    closeWelcome(false);
+    explorerOpen = true;
+    selectedRow = 0;
+    explorerKey = '';
+    const first = world.explorer.initialProbe(state);
+    for (let i = 0; i < 4; i += 1) { probe[i] = first[i] ?? 0; }
+    const explorer = world.explorer;
+    const panel = $('explorer');
+    panel.innerHTML = `
+      <header><div><p class="eyebrow">${escapeHTML(explorer.title)}</p>
+        <h2 class="compact">${escapeHTML(explorer.subtitle)}</h2></div>
+        <button id="explorerClose" class="plain" aria-label="Close explorer">✕</button></header>
+      ${explorer.coordinates.length ? `<h3>${escapeHTML(explorer.pointTitle)}</h3>
+      ${explorer.coordinates.map((coordinate, index) => `<div class="value-row" data-coordinate="${index}">
+        <span>${escapeHTML(coordinate.label)}</span>
+        <input type="range" min="${coordinate.range[0]}" max="${coordinate.range[1]}" step="any" aria-label="${escapeHTML(coordinate.label)}">
+        <input type="number" step="any" aria-label="${escapeHTML(coordinate.label)} value"></div>`).join('')}
+      <h3>Move the point</h3>
+      <div class="pad">${[['←', 'Move left', -1, 0, 0], ['↑', 'Move up', 0, 1, 0], ['↓', 'Move down', 0, -1, 0], ['→', 'Move right', 1, 0, 0],
+        ...(explorer.coordinates.length > 2 ? [['↗', 'Move away', 0, 0, 1], ['↙', 'Move nearer', 0, 0, -1]] : [])]
+        .map(([symbol, label, r, u, a]) => `<button data-nudge="${r},${u},${a}" aria-label="${label}">${symbol}</button>`).join('')}</div>
+      <p class="caption">${escapeHTML(explorer.moveHint)}</p>` : ''}
+      <hr>
+      <div id="explorerReport"></div>`;
+    panel.hidden = false;
+    $('explorerClose').addEventListener('click', closeExplorer);
+    panel.addEventListener('input', onExplorerInput);
+    panel.addEventListener('change', onExplorerInput);
+    for (const button of panel.querySelectorAll('[data-nudge]')) {
+      const [r, u, a] = button.dataset.nudge.split(',').map(Number);
+      let timer = null;
+      const stop = () => { clearTimeout(timer); clearInterval(timer); timer = null; };
+      button.addEventListener('pointerdown', () => {
+        moveProbe(r, u, a);
+        timer = setTimeout(() => { timer = setInterval(() => moveProbe(r, u, a), 70); }, 350);
+      });
+      for (const end of ['pointerup', 'pointerleave', 'pointercancel']) { button.addEventListener(end, stop); }
+      button.addEventListener('click', event => { if (event.detail === 0) { moveProbe(r, u, a); } });
+    }
+    $('modeButtons').hidden = true;
+    // On a narrow screen there is no room for both panels.
+    if (matchMedia('(max-width: 900px)').matches) { setControls(false); }
+    layout();
+    changed();
+  }
+
+  function onExplorerInput(event) {
+    const row = event.target.closest('[data-coordinate]');
+    if (!row) { return; }
+    const index = Number(row.dataset.coordinate);
+    const value = Number(event.target.value);
+    if (event.target.value === '' || !Number.isFinite(value)) { return; }
+    // A number being typed is taken when it is finished, not at every key.
+    if (event.target.type === 'number' && event.type === 'input') { return; }
+    const next = [...probe];
+    next[index] = clamp(value, ...world.explorer.coordinates[index].range);
+    setProbe(next);
+  }
+
+  function closeExplorer() {
+    if (!explorerOpen) { return; }
+    explorerOpen = false;
+    const panel = $('explorer');
+    panel.hidden = true;
+    panel.removeEventListener('input', onExplorerInput);
+    panel.removeEventListener('change', onExplorerInput);
+    $('modeButtons').hidden = false;
+    layout();
+    changed();
+  }
+
+  /** Brings the explorer's numbers up to date with the point and the state. */
+  function refreshExplorer() {
+    if (!explorerOpen) { return; }
+    const panel = $('explorer');
+    for (const row of panel.querySelectorAll('[data-coordinate]')) {
+      const value = probe[Number(row.dataset.coordinate)];
+      const [range, field] = row.querySelectorAll('input');
+      if (document.activeElement !== range) { range.value = value; }
+      if (document.activeElement !== field) { field.value = value.toFixed(4); }
+    }
+    const found = report();
+    const rows = found.rows;
+    const chosen = rows.length ? clamp(selectedRow, rows[0].id, rows[rows.length - 1].id) : 0;
+    const row = rows.find(r => r.id === chosen);
+    const columns = `grid-template-columns: 26px repeat(${Math.max(found.columns.length - 1, 1)}, 1fr)`;
+    const html = `
+      <p class="verdict-title">${escapeHTML(found.headline)}</p>
+      ${found.details.map(detail => `<p class="caption">${escapeHTML(detail)}</p>`).join('')}
+      ${rows.length ? `<h3>${escapeHTML(found.tableTitle)}</h3>
+      <div class="orbit-table">
+        <div class="orbit-row head" style="${columns}">${found.columns.map(c => `<span>${escapeHTML(c)}</span>`).join('')}</div>
+        ${rows.map(r => `<button class="orbit-row${r.id === chosen ? ' selected' : ''}" style="${columns}" data-row="${r.id}">${
+          r.cells.map(c => `<span>${escapeHTML(c)}</span>`).join('')}</button>`).join('')}
+      </div>
+      <p class="caption">Select a row to see that step worked out below.</p>` : ''}
+      ${row ? `<h3>${escapeHTML(row.workedTitle)}</h3>
+      ${row.worked.map(([label, value]) => `<div class="worked"><span>${escapeHTML(label)}</span><span>${escapeHTML(value)}</span></div>`).join('')}
+      ${row.note ? `<p class="caption">${escapeHTML(row.note)}</p>` : ''}` : ''}`;
+    if (html !== explorerKey) {
+      explorerKey = html;
+      const box = $('explorerReport');
+      box.innerHTML = html;
+      for (const button of box.querySelectorAll('[data-row]')) {
+        button.addEventListener('click', () => { selectedRow = Number(button.dataset.row); changed(); });
+      }
+    }
+  }
+
+  if (world.explorer) {
+    $('modeButtons').insertAdjacentHTML('beforeend', '<button id="explorerPill" class="pill">ƒ Explorer</button>');
+    $('explorerPill').addEventListener('click', openExplorer);
+  }
+
   // MARK: Welcome and sights
 
   /** True while the welcome card is up. */
@@ -1368,6 +1561,7 @@ export function start(world) {
     endTour();
     endRide();
     endSight();
+    closeExplorer();
     welcome = true;
     $('tourCard').innerHTML = `
       <header><p class="eyebrow">${arriving ? 'Welcome' : 'Rides and sights'}</p>
@@ -1378,6 +1572,7 @@ export function start(world) {
         <button id="welcomeTour" class="prominent">▶ Guided tour</button>
         ${theRide ? `<button id="welcomeRide">🎢 ${escapeHTML(theRide.title)}</button>` : ''}
         <button id="welcomeExplore">Explore on my own</button>
+        ${world.explorer ? '<button id="welcomeNumbers">ƒ Explorer</button>' : ''}
       </div>
       ${sights.length ? `<p class="caption">Or ride straight to a sight:</p>
       <div class="sights">${sights.map((sight, index) =>
@@ -1390,6 +1585,7 @@ export function start(world) {
     $('welcomeTour').addEventListener('click', () => showTourStep(0));
     $('welcomeRide')?.addEventListener('click', () => startRide());
     $('welcomeExplore').addEventListener('click', () => closeWelcome(true));
+    $('welcomeNumbers')?.addEventListener('click', openExplorer);
     for (const button of $('tourCard').querySelectorAll('[data-sight]')) {
       button.addEventListener('click', () => showSight(Number(button.dataset.sight)));
     }
@@ -1413,6 +1609,7 @@ export function start(world) {
     endTour();
     endRide();
     closeWelcome(false);
+    closeExplorer();
     sightIndex = index;
     const sight = sights[index];
     const last = index === sights.length - 1;
@@ -1479,6 +1676,7 @@ export function start(world) {
     endTour();
     endSight();
     closeWelcome(false);
+    closeExplorer();
     ride = { planner: theRide.start(seed), settings: rideSettings(), paused: false, caption: '' };
     $('tourCard').innerHTML = `
       <header><p class="eyebrow">${escapeHTML(theRide.title)} · ${escapeHTML(world.title)}</p>
@@ -1563,7 +1761,8 @@ export function start(world) {
   function layout() {
     const tall = canvas.clientHeight > canvas.clientWidth * 1.2;
     document.body.classList.toggle('tall', tall);
-    verticalShift = tall && (tourIndex !== null || ride !== null || welcome || sightIndex !== null) ? 0.62 : 0;
+    verticalShift = tall && explorerOpen ? 0.8
+      : tall && (tourIndex !== null || ride !== null || welcome || sightIndex !== null) ? 0.62 : 0;
     dirty = true;
   }
 

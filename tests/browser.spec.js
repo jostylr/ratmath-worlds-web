@@ -166,3 +166,25 @@ test('a knot opened fully relaxed catches up by itself', async ({ page }) => {
   await page.waitForTimeout(500);
   expect(Buffer.compare(settled, await page.locator('#view').screenshot())).toBe(0);
 });
+
+test('the Mandelbrot explorer follows a tapped number and works a step out', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.goto('/mandelbrot.html?plain'); await ready(page);
+  await page.locator('#explorerPill').click();
+  await expect(page.locator('#explorer')).toBeVisible();
+  // The explorer starts on c, which is in the bulb of three.
+  await expect(page.locator('#explorerReport .verdict-title')).toHaveText('Stays: settles into a cycle of 3');
+  // A number far outside escapes at once, and its row shows the squaring.
+  await page.getByLabel('real value', { exact: true }).fill('1.2');
+  await page.getByLabel('real value', { exact: true }).press('Tab');
+  await expect(page.locator('#explorerReport .verdict-title')).toContainText('Escapes at step');
+  await page.locator('#explorerReport [data-row="1"]').click();
+  await expect(page.locator('#explorerReport')).toContainText('Step 1, worked');
+  await page.keyboard.press('ArrowLeft');
+  await expect(page.getByLabel('real value', { exact: true })).not.toHaveValue('1.2000');
+  await page.getByRole('button', { name: 'Close explorer', exact: true }).click();
+  await expect(page.locator('#explorer')).toBeHidden();
+  await expect(page.locator('#explorerPill')).toBeVisible();
+  expect(errors).toEqual([]);
+});

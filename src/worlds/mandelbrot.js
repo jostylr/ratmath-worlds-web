@@ -4,7 +4,7 @@
 // words are copied from it.
 import { newState, copyState, keyframe, slider, picker, toggle, readout, group, Format, WIDE_LOW } from './engine.js';
 import { Wide } from './wide.js';
-import { SHELF, WHITE, YELLOW, CYAN, PINK, dot, segment, blend, complex } from './flat-support.js';
+import { SHELF, WHITE, YELLOW, CYAN, PINK, dot, segment, blend, complex, sub } from './flat-support.js';
 import { FRAGMENT } from './shaders/mandelbrot.js';
 import { mandelbrotRide } from './mandelbrot-ride.js';
 
@@ -488,6 +488,109 @@ function reference(state) {
   return best;
 }
 
+// MARK: Explorer
+
+/** What the explorer says about one number: MandelbrotWorld.report in the app. */
+function explorerReport(point, state, row) {
+  const julia = isJulia(state);
+  const constant = julia ? c(state) : point;
+  const start = julia ? point : [0, 0];
+  const path = orbit(start, constant);
+  const limit = stepLimit(state);
+  const last = Math.min(path.points.length - 1, 40);
+  const n4 = value => Format.number(value, 4);
+
+  const rows = [];
+  for (let n = 0; n <= last; n += 1) {
+    const z = path.points[n];
+    const size = Math.hypot(z[0], z[1]);
+    const cells = [String(n), complex(z, 3), Format.number(size, 3)];
+    if (n === 0) {
+      rows.push({
+        id: 0, cells, workedTitle: 'The start',
+        worked: [['z₀', complex(z)], ['c', complex(constant)]],
+        note: julia
+          ? 'On a Julia set the chosen point is where the orbit starts, and c is the same for every point of the picture.'
+          : 'On the Mandelbrot set every orbit starts at 0, and the chosen point is the c that is added at each step. So z₁ is always c itself.',
+      });
+      continue;
+    }
+    const previous = path.points[n - 1];
+    const squared = square(previous);
+    rows.push({
+      id: n, cells, workedTitle: `Step ${n}, worked`,
+      worked: [
+        [`z${sub(n - 1)} = x + yi`, complex(previous)],
+        ['x² − y²', n4(squared[0])],
+        ['2xy', n4(squared[1])],
+        [`z${sub(n - 1)}²`, complex(squared)],
+        ['add c', complex(constant)],
+        [`z${sub(n)}`, complex(z)],
+        [`|z${sub(n)}| = √(x² + y²)`, n4(size)],
+      ],
+      note: path.escapedAt === n
+        ? 'This is more than 2 from zero. From here squaring wins over adding c, every answer is larger than the last, and the orbit is gone for good.'
+        : 'Squaring a complex number is ordinary algebra with i² = −1: (x + yi)² = x² − y² + 2xyi. The answer is still within 2 of zero, so the rule is applied again.',
+    });
+  }
+
+  let headline;
+  let details;
+  if (path.escapedAt !== null) {
+    const n = path.escapedAt;
+    headline = `Escapes at step ${n}`;
+    details = [
+      n > limit
+        ? `That is past the step limit of ${limit}, so the picture gives up and paints this point black. Raise the limit and it gains a colour.`
+        : 'The Bands colouring paints one flat colour for each such count. The other colourings smooth between the counts.',
+      julia
+        ? 'The starting point is outside the filled Julia set of c.'
+        : 'This c is outside the Mandelbrot set, so its Julia set is a dust of separate points.',
+    ];
+  } else if (path.period !== null) {
+    const period = path.period;
+    headline = period === 1 ? 'Stays: settles on one value' : `Stays: settles into a cycle of ${period}`;
+    const end = path.points[path.points.length - 1];
+    details = [
+      `After ${PATIENCE} steps the orbit is at ${complex(end)} and returning there every ${period === 1 ? 'step' : `${period} steps`}.`,
+      julia
+        ? 'The starting point is inside the filled Julia set of c.'
+        : `This c is inside the Mandelbrot set, in a bulb of period ${period}, and its Julia set is one connected piece.`,
+    ];
+  } else {
+    headline = `Undecided after ${PATIENCE} steps`;
+    details = ['The orbit has neither escaped nor settled into a cycle. Points this close to the border can take any number of steps to decide; that is why the border is so intricate.'];
+  }
+  if (path.points.length - 1 > last) { details.push(`The table and the picture show the first ${last} steps.`); }
+
+  const markers = orbitMarkers(path, clamp(row, 0, last), state);
+  if (!julia) { markers.push(dot(view(constant, state), YELLOW)); }
+  return { headline, details, tableTitle: 'Orbit', columns: ['n', 'zₙ', '|zₙ|'], rows, markers: markers.filter(Boolean) };
+}
+
+const explorer = {
+  title: 'Orbit explorer',
+  subtitle: 'One number, followed step by step',
+  buttonTitle: 'Orbit explorer',
+  blurb: 'The explorer follows one number through the rule: every answer, how far it is from zero, and the step at which it escapes, if it does.',
+  pointTitle: 'Chosen number',
+  coordinates: [{ label: 'real', range: [-2.5, 1.5] }, { label: 'imag.', range: [-2, 2] }],
+  moveHint: 'Arrow keys move the number. Click or tap the picture to put it there. On the Mandelbrot set the number is c and the orbit starts at 0; on a Julia set the number is the start, and c stays as it was.',
+  initialProbe(state) {
+    const point = isJulia(state) ? centre(state) : c(state);
+    return [point[0], point[1], 0, 0];
+  },
+  report: (probe, state, row) => explorerReport([probe[0], probe[1]], state, row),
+  move(probe, right, up, away, state) {
+    const step = 0.03 * scale(state);
+    return [probe[0] + right * step, probe[1] + up * step, 0, 0];
+  },
+  pick(viewPoint, state) {
+    const point = plane(viewPoint, state);
+    return [point[0], point[1], 0, 0];
+  },
+};
+
 const juliaReferenceCache = { key: '', value: { orbit: NO_REFERENCE, lastOfZero: 0, startOfCentre: 0, lastOfCentre: 0 } };
 
 /** The two orbits a Julia set's pixels are measured against (juliaDeep in
@@ -622,9 +725,11 @@ export const world = {
     Drag to move the picture and pinch to zoom. Double-tap a spot to dive
     toward it. A single tap on the Mandelbrot set chooses c.`,
   tour,
+  explorer,
   ride: mandelbrotRide({ PICTURE, C_X, C_Y, INSET, ORBIT, LIMIT, FADE, CENTRE_X, CENTRE_Y }, setCentre),
-  shaderValues(state) {
-    const chosen = c(state);
+  shaderValues(state, probe) {
+    // With the explorer open on the Mandelbrot set, its point is c.
+    const chosen = probe && !isJulia(state) ? [probe[0], probe[1]] : c(state);
     const values = new Array(32).fill(0);
     values[0] = state.values[CENTRE_X];
     values[1] = state.values[CENTRE_Y];
