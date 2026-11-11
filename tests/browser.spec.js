@@ -189,8 +189,9 @@ test('the Mandelbrot explorer follows a tapped number and works a step out', asy
   expect(errors).toEqual([]);
 });
 
-// Every world on the 2D shelf has an explorer: it opens, gives a verdict, and closes.
-for (const world of ['logistic', 'newton', 'newton-lab', 'henon', 'chaos-game', 'pendulum', 'penrose', 'apollonian', 'flatland']) {
+// Every world with an explorer: it opens, gives a verdict, and closes.
+for (const world of ['logistic', 'newton', 'newton-lab', 'henon', 'chaos-game', 'pendulum', 'penrose', 'apollonian', 'flatland',
+  'menger', 'attractors', 'recursive-room', 'lorentz', 'knots', 'geodesics', 'spherical-space', 'escher', 'topology', 'eversion']) {
   test(`${world}: the explorer opens with a verdict and closes`, async ({ page }) => {
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));

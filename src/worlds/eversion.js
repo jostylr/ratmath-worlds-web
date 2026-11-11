@@ -125,7 +125,11 @@ function shownProgress(state) { return state.values[PROGRESS]; }
 
 const VERTEX_COUNT = (ROWS + 1) * (COLUMNS + 1);
 const points = new Float64Array(3 * VERTEX_COUNT);
-const vertices = new Float32Array(8 * VERTEX_COUNT);
+// The explorer's point is a small white ball, kept after the surface.
+const BALL_STACKS = 8;
+const BALL_SLICES = 12;
+const BALL_VERTICES = (BALL_STACKS + 1) * (BALL_SLICES + 1);
+const vertices = new Float32Array(8 * (VERTEX_COUNT + BALL_VERTICES));
 const indices = new Uint32Array(6 * ROWS * COLUMNS);
 for (let i = 0, n = 0; i < ROWS; i += 1) {
   for (let j = 0; j < COLUMNS; j += 1) {
@@ -138,15 +142,51 @@ for (let i = 0, n = 0; i < ROWS; i += 1) {
   }
 }
 const surface = { vertices, indices };
+// The same triangles, and then the ball's.
+const indicesWithBall = new Uint32Array(indices.length + 6 * BALL_STACKS * BALL_SLICES);
+indicesWithBall.set(indices);
+for (let i = 0, n = indices.length; i < BALL_STACKS; i += 1) {
+  for (let j = 0; j < BALL_SLICES; j += 1) {
+    const a = VERTEX_COUNT + i * (BALL_SLICES + 1) + j;
+    const c = a + BALL_SLICES + 1;
+    indicesWithBall.set([a, c, a + 1, a + 1, c, c + 1], n);
+    n += 6;
+  }
+}
+const surfaceWithBall = { vertices, indices: indicesWithBall };
 /** The progress the vertices were last worked out for. */
 let meshProgress = null;
+const ballCentre = [0, 0, 0];
 
 function mesh(state, probe, clock) {
   const progress = shownProgress(state, clock);
-  // A surface that is holding still is not worked out again.
-  if (progress === meshProgress) { return surface; }
-  meshProgress = progress;
+  if (probe) {
+    // The explorer's point: a small white ball on the surface (a negative
+    // u marks it for the shader).
+    surfaceOnly(progress);
+    point(probe[0] * Math.PI / 180, probe[1] * Math.PI / 180, parameters(progress), ballCentre, 0);
+    for (let i = 0; i <= BALL_STACKS; i += 1) {
+      const theta = -Math.PI / 2 + Math.PI * i / BALL_STACKS;
+      for (let j = 0; j <= BALL_SLICES; j += 1) {
+        const phi = 2 * Math.PI * j / BALL_SLICES;
+        const n = [Math.cos(theta) * Math.cos(phi), Math.sin(theta), Math.cos(theta) * Math.sin(phi)];
+        vertices.set([ballCentre[0] + n[0] * 0.045, ballCentre[1] + n[1] * 0.045, ballCentre[2] + n[2] * 0.045, -1, n[0], n[1], n[2], 0],
+          8 * (VERTEX_COUNT + i * (BALL_SLICES + 1) + j));
+      }
+    }
+    surfaceWithBall.revision = `${progress}|${probe[0]},${probe[1]}`;
+    return surfaceWithBall;
+  }
+  surfaceOnly(progress);
   surface.revision = progress;
+  return surface;
+}
+
+/** Works the surface out for a progress, unless it already stands. */
+function surfaceOnly(progress) {
+  // A surface that is holding still is not worked out again.
+  if (progress === meshProgress) { return; }
+  meshProgress = progress;
   const m = parameters(progress);
   // The very poles are left out by a hair; the formulas divide by cos θ.
   const edge = 0.002;
@@ -190,7 +230,6 @@ function mesh(state, probe, clock) {
       vertices[at + 7] = j / COLUMNS;
     }
   }
-  return surface;
 }
 
 const three = value => Format.number(value, 3);
@@ -378,6 +417,124 @@ const tour = [
   },
 ];
 
+// MARK: Explorer
+
+/** Every step of the computation for one point, kept for display:
+    EversionMath.trace in the app. */
+function trace(theta, phi, m) {
+  const c = Math.cos(theta), s = Math.sin(theta);
+  const cn = c * c;
+  const t = m.t;
+  if (m.lambda < 1) {
+    const g = m.lambda * cn + (1 - m.lambda);
+    const ax = t * g * Math.cos(phi) - m.lambda * OMEGA * s * Math.sin(phi);
+    const ay = t * g * Math.sin(phi) + m.lambda * OMEGA * s * Math.cos(phi);
+    const size = t * t * g * g + m.lambda * m.lambda * OMEGA * OMEGA * s * s;
+    const scale = ETA ** KAPPA * c / size ** (1 - KAPPA);
+    const zc = m.lambda * (OMEGA * s * (Math.sin(N * phi) - m.q * t) * cn - (t / N) * Math.cos(N * phi) * cn * cn)
+      - (1 - m.lambda) * ETA ** (1 + KAPPA) * t * Math.abs(t) ** (2 * KAPPA) * s;
+    return { h: null, ruled: [ax, ay, zc], damped: null, closed: [scale * ax, scale * ay, -(zc / ETA) / size] };
+  }
+  const p = 1 - Math.abs(m.q * t);
+  const h = OMEGA * s / Math.max(cn, 1e-12);
+  const x = t * Math.cos(phi) + p * Math.sin((N - 1) * phi) - h * Math.sin(phi);
+  const y = t * Math.sin(phi) + p * Math.cos((N - 1) * phi) + h * Math.cos(phi);
+  const z = h * Math.sin(N * phi) - (t / N) * Math.cos(N * phi) - m.q * t * h;
+  const denominator = m.xi + ETA * (x * x + y * y);
+  const shrink = denominator ** -KAPPA;
+  const x1 = x * shrink, y1 = y * shrink, z1 = z / denominator;
+  const rho = x1 * x1 + y1 * y1;
+  const gamma = 2 * Math.sqrt(m.alpha * BETA);
+  const spread = Math.exp(gamma * z1) / (m.alpha + BETA * rho);
+  const lift = gamma < 1e-9 ? z1 : Math.expm1(gamma * z1) / gamma;
+  const z2 = (m.alpha - BETA * rho) / (m.alpha + BETA * rho) * lift
+    + (gamma / 2) * (1 - rho) / ((m.alpha + BETA * rho) * (m.alpha + BETA));
+  return { h, ruled: [x, y, z], damped: [x1, y1, z1], closed: [x1 * spread, y1 * spread, z2] };
+}
+
+/** What the explorer says about one point of the sphere: EversionWorld.report in the app. */
+function explorerReport(latitude, longitude, state) {
+  const m = parameters(state.values[PROGRESS]);
+  const theta = latitude * Math.PI / 180;
+  const phi = longitude * Math.PI / 180;
+  const found = trace(theta, phi, m);
+  const v2 = v => Format.vector(v, 2);
+  const p = 1 - Math.abs(m.q * m.t);
+  const rows = [];
+  if (found.h !== null) {
+    rows.push({
+      id: 1, cells: ['1', 'height on the cylinder', three(found.h)], workedTitle: 'Onto the cylinder, worked',
+      worked: [['sin θ', three(Math.sin(theta))], ['cos² θ', three(Math.cos(theta) ** 2)], ['h = ω sin θ ⁄ cos² θ', three(found.h)]],
+      note: 'The sphere without its two poles is a cylinder. Latitude becomes a height h that runs off to infinity as the point nears a pole; longitude φ is unchanged.',
+    }, {
+      id: 2, cells: ['2', 'on the ruled surface', v2(found.ruled)], workedTitle: 'The ruled surface, worked',
+      worked: [
+        ['t, p, q', `${three(m.t)}, ${three(p)}, ${three(m.q)}`],
+        ['x = t cos φ + p sin φ − h sin φ', three(found.ruled[0])],
+        ['y = t sin φ + p cos φ + h cos φ', three(found.ruled[1])],
+        ['z = h sin 2φ − ½t cos 2φ − qth', three(found.ruled[2])],
+      ],
+      note: 'For a fixed longitude these are straight lines in h: the surface is swept out by a line that turns as φ goes round. As t passes from negative to positive the whole family of lines passes through itself, and that is the eversion. At t = 0 four sheets meet at one point.',
+    }, {
+      id: 3, cells: ['3', 'damped', v2(found.damped)], workedTitle: 'Damping, worked',
+      worked: [
+        ['s = ξ + η(x² + y²)', three(m.xi + ETA * (found.ruled[0] ** 2 + found.ruled[1] ** 2))],
+        ['x′ = x ⁄ s^¼', three(found.damped[0])],
+        ['y′ = y ⁄ s^¼', three(found.damped[1])],
+        ['z′ = z ⁄ s', three(found.damped[2])],
+      ],
+      note: 'The cylinder is infinite. This squeezes its far reaches so that the next step can close them up smoothly.',
+    }, {
+      id: 4, cells: ['4', 'closed up', v2(found.closed)], workedTitle: 'Closing the ends, worked',
+      worked: [
+        ['α, β', `${three(m.alpha)}, ${three(BETA)}`],
+        ['γ = 2√(αβ)', three(2 * Math.sqrt(m.alpha * BETA))],
+        ['x″', three(found.closed[0])],
+        ['y″', three(found.closed[1])],
+        ['z″', three(found.closed[2])],
+      ],
+      note: 'A relative of the map that flattens a globe onto a plane, run in reverse: it gathers each infinite end of the cylinder to a single point, which becomes a pole of the sphere again.',
+    });
+  } else {
+    rows.push({
+      id: 1, cells: ['1', 'twisted', v2(found.ruled)], workedTitle: 'Twisting the poles, worked',
+      worked: [
+        ['λ', three(m.lambda)], ['t', three(m.t)],
+        ['x · cos² θ', three(found.ruled[0])], ['y · cos² θ', three(found.ruled[1])], ['z · cos⁴ θ', three(found.ruled[2])],
+      ],
+      note: 'In this first stage λ goes from 0 to 1. At λ = 0 the formulas give a plain sphere. As λ grows, the two caps are turned against each other and pushed through each other, which is allowed, until the surface matches the closed-up cylinder.',
+    }, {
+      id: 2, cells: ['2', 'closed up', v2(found.closed)], workedTitle: 'Position, worked',
+      worked: [
+        ['x″', three(found.closed[0])], ['y″', three(found.closed[1])], ['z″', three(found.closed[2])],
+        ['distance from centre', three(Math.hypot(...found.closed))],
+      ],
+      note: 'At λ = 0 every point is at distance |t|^(−½) ≈ 0.816 from the centre: a sphere.',
+    });
+  }
+  return {
+    headline: STAGE_NAMES[m.stage] + (state.values[PROGRESS] > 0.5 ? ', reversed' : ''),
+    details: [
+      `t = ${three(m.t)}, q = ${three(m.q)}, λ = ${three(m.lambda)}, ξ = α = ${three(m.alpha)}.`,
+      `The formulas are those of Adam and Witold Bednorz (2017). The point keeps its latitude ${Math.trunc(latitude)}° and longitude ${Math.trunc(longitude)}° throughout.`,
+    ],
+    tableTitle: 'From the sphere to the picture', columns: ['', 'step', 'value'], rows, markers: [],
+  };
+}
+
+const explorer = {
+  title: 'Point explorer',
+  subtitle: 'Follow one point of the sphere',
+  buttonTitle: 'Point explorer',
+  blurb: 'The explorer takes one point of the sphere, by its latitude and longitude, and works out where the formulas put it at this moment, step by step.',
+  pointTitle: 'Point on the sphere (white ball)',
+  coordinates: [{ label: 'lat °', range: [-85, 85] }, { label: 'long °', range: [0, 360] }],
+  moveHint: 'Left and right arrows change the longitude, up and down the latitude. The point keeps its latitude and longitude throughout; move Progress to see where the eversion carries it.',
+  initialProbe: () => [30, 40, 0, 0],
+  report: (probe, state) => explorerReport(probe[0], probe[1], state),
+  move: (probe, right, up) => [Math.min(Math.max(probe[0] + up * 2, -85), 85), (probe[1] + right * 3 + 360) % 360, 0, 0],
+};
+
 export const world = {
   id: 'eversion',
   title: 'Sphere eversion',
@@ -426,6 +583,7 @@ export const world = {
     that began outside and violet the side that began inside, whichever
     way they now face.`,
   tour,
+  explorer,
   shaderValues(state) {
     // What the mesh's shader reads: slats, the cut-away fraction, the grid.
     const values = new Array(32).fill(0);
