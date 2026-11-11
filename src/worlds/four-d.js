@@ -1,7 +1,7 @@
 // The 4D slice laboratory: shapes with four coordinates, seen one solid slice
 // at a time. This is Worlds/FourD/FourDWorld.swift, without its explorer; the
 // tour's words are copied from it.
-import { newState, copyState, keyframe, slider, picker, readout, group } from './engine.js';
+import { newState, copyState, keyframe, slider, picker, readout, group, Camera, Format } from './engine.js';
 import { dot4, makeSlice, slicePoint, writeSlice } from './four-d-math.js';
 import { FRAGMENT } from './shaders/four-d.js';
 
@@ -277,6 +277,118 @@ const tour = [
   },
 ];
 
+// MARK: Explorer
+
+/** The explorer's point is a small 4D ball of this radius. */
+const BALL_RADIUS = 0.16;
+
+/** What the explorer says about one point with four coordinates: FourDWorld.report in the app. */
+function explorerReport(x, state) {
+  const s = slice(state);
+  const shape = shapeIndex(state);
+  const u = [dot4(x, s.e1), dot4(x, s.e2), dot4(x, s.e3)];
+  const off = dot4(x, s.n) - s.w;
+  const four = v => `(${v.map(c => c.toFixed(2)).join(', ')})`;
+  const n = value => Format.number(value, 3);
+
+  const placeRow = {
+    id: 1, cells: ['1', 'place in your slice', `(${n(u[0])}, ${n(u[1])}, ${n(u[2])})`],
+    workedTitle: 'Place in the slice, worked',
+    worked: [
+      ['point, p', four(x)],
+      ['e₁', four(s.e1)], ['u₁ = p · e₁', n(u[0])],
+      ['e₂', four(s.e2)], ['u₂ = p · e₂', n(u[1])],
+      ['e₃', four(s.e3)], ['u₃ = p · e₃', n(u[2])],
+    ],
+    note: 'e₁, e₂ and e₃ are the three directions of your slice, written with four coordinates each. A dot product multiplies matching coordinates and adds them up; it measures how far the point goes in that direction.',
+  };
+
+  const visible = Math.abs(off) < BALL_RADIUS;
+  const offRow = {
+    id: 2, cells: ['2', 'off your slice by', n(off)],
+    workedTitle: 'Distance off the slice, worked',
+    worked: [
+      ['hidden direction, n', four(s.n)],
+      ['p · n', n(dot4(s.n, x))],
+      ['slice position, w', n(s.w)],
+      ['p · n − w', n(off)],
+      ['ball radius', n(BALL_RADIUS)],
+      ['its slice: √(r² − off²)', visible ? n(Math.sqrt(BALL_RADIUS * BALL_RADIUS - off * off)) : 'none'],
+    ],
+    note: 'n is the one direction at right angles to all of your slice. The point is in your space only when p · n equals w exactly. The small ball around it reaches your slice while it is within its radius, and shows as a ball of radius √(r² − off²), the same rule that makes a sphere\'s cross-sections grow and shrink.',
+  };
+
+  const distance = shapeDistance(x, shape);
+  let worked;
+  let insideNote;
+  if (shape === 0) {
+    const sum = dot4(x, x);
+    worked = [['x² + y² + z² + w²', n(sum)], ['r²', n(SPHERE_RADIUS * SPHERE_RADIUS)], ['√ of the sum', n(Math.sqrt(sum))], ['r', n(SPHERE_RADIUS)]];
+    insideNote = 'Inside when the four squares add up to less than r². Fix w and what is left is x² + y² + z² < r² − w²: an ordinary ball, smaller the farther w is from zero.';
+  } else if (shape === 1) {
+    worked = ['|x|', '|y|', '|z|', '|w|'].map((label, i) => [label, `${n(Math.abs(x[i]))}${Math.abs(x[i]) <= 1 ? '  ≤ 1' : '  > 1'}`]);
+    worked.push(['largest', n(Math.max(...x.map(Math.abs)))]);
+    insideNote = 'Inside when all four coordinates lie between −1 and 1. The coordinate that reaches ±1 first decides which of the eight cubic walls is nearest.';
+  } else if (shape === 2) {
+    worked = SIMPLEX_CORNERS.map((corner, index) => [`−p · corner ${index + 1}`, n(-dot4(corner, x))]);
+    worked.push(['wall distance, R⁄4', n(SIMPLEX_RADIUS * 0.25)]);
+    insideNote = 'The simplex has five walls, each facing away from one corner. The point is inside when it is behind all five: every number above must be below R⁄4.';
+  } else {
+    worked = [['|x| + |y| + |z| + |w|', n(x.reduce((sum, c) => sum + Math.abs(c), 0))], ['r', n(CROSS_RADIUS)]];
+    insideNote = 'Inside when the four sizes add up to less than r. Each choice of signs for x, y, z, w gives one flat wall, sixteen in all.';
+  }
+  worked.push(['distance to the surface', n(Math.abs(distance))]);
+  const insideRow = {
+    id: 3, cells: ['3', 'inside the shape?', distance <= 0 ? 'yes' : 'no'],
+    workedTitle: `Inside the ${SHAPE_NAMES[shape].toLowerCase()}?`, worked, note: insideNote,
+  };
+
+  // The engine sizes markers from the camera distance; undo that so the
+  // ball has its true size.
+  const marker = visible
+    ? { position: u, size: Math.sqrt(BALL_RADIUS * BALL_RADIUS - off * off) / (0.013 * state.cameraDistance), color: [1, 1, 1] }
+    : { position: u, size: 0.35, color: [0.5, 0.5, 0.55] };
+  const where = distance <= 0 ? 'inside' : 'outside';
+  return {
+    headline: visible ? `In your slice, ${where} the shape` : `Not in your slice: ${n(Math.abs(off))} off it`,
+    details: [
+      visible
+        ? `The point is within ${n(BALL_RADIUS)} of your slice, so its ball shows.`
+        : `Move the slice to w = ${n(dot4(s.n, x))} to bring it into view. The grey speck marks the spot directly beside it in your slice.`,
+      `As a 4D point it is ${where} the ${SHAPE_NAMES[shape].toLowerCase()}, whether or not you can see it.`,
+    ],
+    tableTitle: 'Measurements', columns: ['', 'quantity', 'value'], rows: [placeRow, offRow, insideRow], markers: [marker],
+  };
+}
+
+const explorer = {
+  title: 'Point explorer',
+  subtitle: 'One point with four coordinates',
+  buttonTitle: 'Point explorer',
+  blurb: 'The explorer takes a point with four coordinates and works out where it sits in your slice, how far off the slice it is, and whether it is inside the shape.',
+  pointTitle: 'Point, in the shape\'s coordinates',
+  coordinates: ['x', 'y', 'z', 'w'].map(label => ({ label, range: [-2, 2] })),
+  moveHint: 'Arrow keys move the point within your slice; with Shift, ↑ and ↓ move it away and nearer. Click or tap the shape to put the point on its surface. The point is drawn as a small 4D ball: it shrinks as it leaves your slice, and is a grey speck once it is out of it.',
+  initialProbe: state => slicePoint(slice(state), [0.6, 0.4, 0.5]),
+  report: (probe, state) => explorerReport(probe, state),
+  move(probe, right, up, away, state) {
+    const s = slice(state);
+    const axis = v => Camera.rotate(v, state.yaw, state.pitch);
+    const r = axis([1, 0, 0]), u = axis([0, 1, 0]), b = axis([0, 0, 1]);
+    const step = [0, 1, 2].map(i => (r[i] * right + u[i] * up - b[i] * away) * 0.05);
+    return probe.map((c, i) => c + s.e1[i] * step[0] + s.e2[i] * step[1] + s.e3[i] * step[2]);
+  },
+  pick(viewPoint, state) {
+    const s = slice(state);
+    const local = [viewPoint[0] * 0.72, viewPoint[1] * 0.72, -1.65];
+    const length = Math.hypot(...local);
+    const direction = Camera.rotate(local.map(c => c / length), state.yaw, state.pitch);
+    const shape = shapeIndex(state);
+    const hit = Camera.raycast(Camera.position(state), direction, state, u => shapeDistance(slicePoint(s, u), shape));
+    return hit ? slicePoint(s, hit.point) : null;
+  },
+};
+
 export const world = {
   id: 'four-d',
   title: '4D slices',
@@ -335,6 +447,7 @@ export const world = {
     the 4D shape it is cut from. Hidden coordinate colours the surface
     by the shape's own w: blue for negative, orange for positive.`,
   tour,
+  explorer,
   distance: (u, state) => shapeDistance(slicePoint(slice(state), u), shapeIndex(state)),
   shaderValues(state) {
     const values = new Array(32).fill(0);
