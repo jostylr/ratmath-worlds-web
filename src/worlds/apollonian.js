@@ -1,8 +1,8 @@
 // The Apollonian gasket as the limit set of a group of circle inversions.
 // This is Worlds/Flat/ApollonianWorld.swift, without its explorer; the
 // tour's words are copied from it.
-import { newState, copyState, keyframe, slider, toggle, group } from './engine.js';
-import { SHELF, lookDown, pan, dive } from './flat-support.js';
+import { newState, copyState, keyframe, slider, toggle, group, Format } from './engine.js';
+import { SHELF, YELLOW, dot, view, complex, scale, plane, lookDown, pan, dive } from './flat-support.js';
 import { FRAGMENT } from './shaders/apollonian.js';
 
 // Indices into the state's values.
@@ -183,6 +183,144 @@ const tour = [
 
 // MARK: World
 
+// MARK: Explorer
+
+/** The four starting circles: curvatures −1, 2, 2 and 3. */
+const STARTS = [[0, 0, 1], [-0.5, 0, 0.5], [0.5, 0, 0.5], [0, 2 / 3, 1 / 3]];
+const START_NAMES = ['the unit circle', 'the left circle of radius ½', 'the right circle of radius ½', 'the circle of radius ⅓'];
+const MIRROR_NAMES = ['the mirror of radius ¼', 'the right mirror', 'the left mirror', 'the line y = 0'];
+
+/** Which starting circle a folded point lies in (0 means outside the unit
+    circle), or −1 for none. */
+function landing(q) {
+  let best = 1 - Math.hypot(q[0], q[1]);
+  let which = 0;
+  for (let k = 1; k <= 3; k += 1) {
+    const d = Math.hypot(q[0] - STARTS[k][0], q[1] - STARTS[k][1]) - STARTS[k][2];
+    if (d < best) { best = d; which = k; }
+  }
+  return best <= 0 ? which : -1;
+}
+
+/** A point folded back until it lies outside every mirror: each step's
+    point, mirror and the magnification so far. */
+function fold(start, size, limit) {
+  let p = [start[0], start[1]];
+  let last = -1;
+  let magnification = 1;
+  const steps = [];
+  for (let i = 0; i < limit; i += 1) {
+    if (landing(p) >= 0) { return { steps, settled: true }; }
+    let moved = false;
+    if (p[1] < 0) {
+      p = [p[0], -p[1]];
+      last = 3;
+      moved = true;
+    } else {
+      for (let m = 0; m < MIRRORS.length; m += 1) {
+        if (m === last) { continue; }
+        const [cx, cy, radius] = [MIRRORS[m][0], MIRRORS[m][1], MIRRORS[m][2] * size];
+        const d = [p[0] - cx, p[1] - cy];
+        const d2 = d[0] * d[0] + d[1] * d[1];
+        if (d2 < radius * radius) {
+          const k = radius * radius / Math.max(d2, 1e-300);
+          p = [cx + d[0] * k, cy + d[1] * k];
+          magnification *= k;
+          last = m;
+          moved = true;
+          break;
+        }
+      }
+    }
+    if (!moved) { return { steps, settled: true }; }
+    steps.push({ point: p, mirror: last, magnification });
+  }
+  return { steps, settled: false };
+}
+
+/** The image of a circle [x, y, radius] under inversion in a mirror, or
+    reflection in the line y = 0 (mirror 3). */
+function invertCircle(circle, mirror, size) {
+  if (mirror === 3) { return [circle[0], -circle[1], circle[2]]; }
+  const [cx, cy, radius] = [MIRRORS[mirror][0], MIRRORS[mirror][1], MIRRORS[mirror][2] * size];
+  const d = [circle[0] - cx, circle[1] - cy];
+  const power = d[0] * d[0] + d[1] * d[1] - circle[2] * circle[2];
+  const r2 = radius * radius;
+  return [cx + d[0] * (r2 / power), cy + d[1] * (r2 / power), r2 * circle[2] / Math.abs(power)];
+}
+
+/** What the explorer says about one point: ApollonianWorld.report in the app. */
+function explorerReport(point, state) {
+  const size = state.values[MIRROR_SCALE];
+  const folded = fold(point, size, 400);
+  const end = folded.steps.length ? folded.steps[folded.steps.length - 1].point : point;
+  const rows = folded.steps.slice(0, 60).map((step, index) => ({
+    id: index,
+    cells: [String(index + 1), step.mirror === 3 ? 'line' : String(step.mirror), complex(step.point, 4)],
+    workedTitle: `Fold ${index + 1}, worked`,
+    worked: [
+      ['in', MIRROR_NAMES[step.mirror]],
+      ['the point becomes', complex(step.point, 6)],
+      ['magnified so far', Format.significant(step.magnification, 4)],
+    ],
+    note: step.mirror === 3
+      ? 'Reflection in the line y = 0: inversion in a circle so large it has become straight.'
+      : 'Inversion in a circle of centre m and radius R sends a point at distance d from m to the point on the same ray at distance R² ⁄ d. Inside goes to outside, and the closer to m, the farther it is thrown.',
+  }));
+  const details = [];
+  let headline;
+  const which = landing(end);
+  const exact = Math.abs(size - 1) < 1e-9;
+  if (!folded.settled) {
+    headline = 'On the gasket itself, or too close to it to tell';
+    details.push('After 400 inversions the point is still inside a mirror. Points of the gasket\'s own dust never come out.');
+  } else if (which < 0) {
+    headline = 'In a gap the mirrors no longer close';
+    details.push('With the mirrors shrunk, the circles no longer touch and gaps open between them. Points here are folded out of every mirror without landing in a circle.');
+  } else {
+    // Carry the starting circle back through the inversions, in reverse.
+    let circle = STARTS[which];
+    for (let i = folded.steps.length - 1; i >= 0; i -= 1) { circle = invertCircle(circle, folded.steps[i].mirror, size); }
+    const curvature = which === 0 && folded.steps.length === 0 ? -1 : 1 / circle[2];
+    headline = folded.steps.length === 0
+      ? 'In one of the four first circles'
+      : `In a circle of curvature ${exact ? Math.round(curvature) : curvature.toFixed(4)}, reached by ${folded.steps.length} inversions`;
+    details.push(`It is a copy of ${START_NAMES[which]}.`);
+    details.push(`Centre ${complex([circle[0], circle[1]], 6)}, radius ${Format.significant(circle[2], 6)}, so curvature 1 ⁄ r = ${curvature.toFixed(6)}.`);
+    details.push(exact
+      ? 'A whole number, as Descartes\'s rule promises: each new circle\'s curvature is 2(k₁ + k₂ + k₃) − k₄ from four circles already there.'
+      : 'With the mirrors resized the group is no longer the gasket\'s, and curvatures stop being whole numbers.');
+  }
+  if (folded.steps.length > 60) { details.push(`The table shows the first 60 inversions of ${folded.steps.length}.`); }
+  return {
+    headline, details,
+    tableTitle: folded.steps.length ? 'Inversions' : '',
+    columns: folded.steps.length ? ['', 'mirror', 'point'] : [],
+    rows,
+    markers: [dot(view(point, state), YELLOW, 0.016)].filter(Boolean),
+  };
+}
+
+const explorer = {
+  title: 'Circle explorer',
+  subtitle: 'Which circle, and how it was reached',
+  buttonTitle: 'Circle explorer',
+  blurb: 'The explorer takes a point, folds it back through the mirrors one inversion at a time, and then works out the circle it lies in: its centre, radius and whole-number curvature.',
+  pointTitle: 'Point',
+  coordinates: [{ label: 'x', range: [-1.2, 1.2] }, { label: 'y', range: [-1.2, 1.2] }],
+  moveHint: 'Arrow keys move the point. Click or tap the picture to put it there.',
+  initialProbe: () => [0.12, 0.83, 0, 0],
+  report: (probe, state) => explorerReport([probe[0], probe[1]], state),
+  move(probe, right, up, away, state) {
+    const step = 0.02 * scale(state);
+    return [probe[0] + right * step, probe[1] + up * step, 0, 0];
+  },
+  pick(viewPoint, state) {
+    const point = plane(viewPoint, state);
+    return [point[0], point[1], 0, 0];
+  },
+};
+
 export const world = {
   id: 'apollonian',
   title: 'Apollonian gasket',
@@ -229,6 +367,7 @@ export const world = {
     Generations colours each circle by how many inversions it took to
     reach it; Families by which of the first circles it is a copy of.`,
   tour,
+  explorer,
   shaderValues(state) {
     const scale = state.values[MIRROR_SCALE];
     const values = new Array(32).fill(0);

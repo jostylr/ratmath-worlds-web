@@ -3,7 +3,7 @@
 // Worlds/Flat/PenroseWorld.swift, without its explorer; the tour's words are
 // copied from it.
 import { newState, copyState, keyframe, slider, toggle, readout, group } from './engine.js';
-import { SHELF, lookDown, pan, dive } from './flat-support.js';
+import { SHELF, lookDown, pan, dive, sub, flatPointExplorer } from './flat-support.js';
 import { FRAGMENT } from './shaders/penrose.js';
 
 // Indices into the state's values.
@@ -39,6 +39,53 @@ function centre(gamma) {
   let c = [0, 0];
   for (let j = 0; j < 5; j += 1) { c = [c[0] + e(j)[0] * gamma[j], c[1] + e(j)[1] * gamma[j]]; }
   return c;
+}
+
+const dotE = (x, j) => x[0] * e(j)[0] + x[1] * e(j)[1];
+const det = (r, s) => e(r)[0] * e(s)[1] - e(r)[1] * e(s)[0];
+
+/** The tile where lines r = kᵣ and s = kₛ cross: its five whole numbers
+    (for the corner with Kᵣ = kᵣ and Kₛ = kₛ), where the lines cross in the
+    grid, and that corner's place in the picture. */
+function tileAt(r, s, kr, ks, gamma) {
+  const er = e(r), es = e(s);
+  const d = det(r, s);
+  const ar = kr - gamma[r];
+  const bs = ks - gamma[s];
+  const crossing = [(ar * es[1] - bs * er[1]) / d, (bs * er[0] - ar * es[0]) / d];
+  const k = [0, 0, 0, 0, 0];
+  k[r] = kr;
+  k[s] = ks;
+  for (let j = 0; j < 5; j += 1) {
+    if (j !== r && j !== s) { k[j] = Math.ceil(dotE(crossing, j) + gamma[j]); }
+  }
+  let base = [0, 0];
+  for (let j = 0; j < 5; j += 1) { base = [base[0] + e(j)[0] * k[j], base[1] + e(j)[1] * k[j]]; }
+  return { r, s, kr, ks, k, crossing, base, isThick: s - r === 1 || s - r === 4 };
+}
+
+/** The tile that holds the point p of the picture, or null. */
+function find(p, gamma) {
+  const c = centre(gamma);
+  const x0 = [(p[0] - c[0]) / 2.5, (p[1] - c[1]) / 2.5];
+  for (let r = 0; r < 4; r += 1) {
+    for (let s = r + 1; s < 5; s += 1) {
+      const er = e(r), es = e(s);
+      const d = det(r, s);
+      const tr = dotE(x0, r) + gamma[r];
+      const ts = dotE(x0, s) + gamma[s];
+      for (let kr = Math.ceil(tr - 1.2); kr <= Math.floor(tr + 1.2); kr += 1) {
+        for (let ks = Math.ceil(ts - 1.2); ks <= Math.floor(ts + 1.2); ks += 1) {
+          const t = tileAt(r, s, kr, ks, gamma);
+          const q = [p[0] - t.base[0], p[1] - t.base[1]];
+          const a = (q[0] * es[1] - q[1] * es[0]) / d;
+          const b = (er[0] * q[1] - er[1] * q[0]) / d;
+          if (a >= 0 && a <= 1 && b >= 0 && b <= 1) { return t; }
+        }
+      }
+    }
+  }
+  return null;
 }
 
 /** Thick and thin tiles whose crossings lie within `radius` of the middle. */
@@ -216,6 +263,74 @@ const tour = [
 
 // MARK: World
 
+// MARK: Explorer
+
+const cornerText = c => `(${c.map(n => (n < 0 ? `−${-n}` : String(n))).join(', ')})`;
+
+/** What the explorer says about the tile under a point: PenroseWorld.report in the app. */
+function explorerReport(point, state) {
+  const g = offsets(state);
+  const t = find(point, g);
+  if (!t) {
+    return {
+      headline: 'No tile found here',
+      details: ['The search looks a little way round the point\'s place in the grid and found nothing; move the point slightly.'],
+      tableTitle: '', columns: [], rows: [], markers: [],
+    };
+  }
+  const rows = [];
+  for (let j = 0; j < 5; j += 1) {
+    const along = dotE(t.crossing, j) + g[j];
+    const crosses = j === t.r || j === t.s;
+    rows.push({
+      id: j,
+      cells: [`e${sub(j)}`, `${72 * j}°`, crosses ? 'crosses here' : `⌈${along.toFixed(3)}⌉`, String(t.k[j])],
+      workedTitle: `Family ${j}, worked`,
+      worked: [
+        ['direction eⱼ', `(${e(j)[0].toFixed(4)}, ${e(j)[1].toFixed(4)})`],
+        ['offset γⱼ', g[j].toFixed(4)],
+        ['x·eⱼ + γⱼ at the crossing', along.toFixed(4)],
+        ['Kⱼ', String(t.k[j])],
+        ['Kⱼ·eⱼ', `(${(e(j)[0] * t.k[j]).toFixed(4)}, ${(e(j)[1] * t.k[j]).toFixed(4)})`],
+      ],
+      note: crosses
+        ? `This is one of the two families whose lines cross at this tile. Along the tile its number takes both values ${t.k[j]} and ${t.k[j] + 1}: the tile's edges in direction e${sub(j)} step from one to the other.`
+        : 'The crossing lies between two lines of this family, so every corner of the tile has the same whole number here: the line just beyond it, rounded up.',
+    });
+  }
+  const corners = [[0, 0], [1, 0], [1, 1], [0, 1]].map(([dr, ds]) => {
+    const corner = [...t.k];
+    corner[t.r] += dr;
+    corner[t.s] += ds;
+    return cornerText(corner);
+  }).join('  ');
+  const counts = count(30, g);
+  const angle = t.isThick ? 72 : 36;
+  return {
+    headline: `A ${t.isThick ? 'thick' : 'thin'} tile, ${angle}°: where lines of families ${t.r} and ${t.s} cross`,
+    details: [
+      `The two families meet at ${angle}°, which is why the tile's sharper angle is ${angle}°.`,
+      `Its corners, as points of the five-dimensional grid: ${corners}.`,
+      `Each corner is K₀e₀ + … + K₄e₄. The first has K₀ + … + K₄ = ${t.k.reduce((sum, n) => sum + n, 0)}: the layer of the grid it lies in.`,
+      `Within 30 units: ${counts.thick} thick and ${counts.thin} thin, a ratio of ${(counts.thick / Math.max(counts.thin, 1)).toFixed(4)}. The golden ratio is ${GOLDEN.toFixed(4)}.`,
+    ],
+    tableTitle: 'The five families at this crossing', columns: ['', 'turn', 'line', 'Kⱼ'], rows, markers: [],
+  };
+}
+
+const explorer = {
+  ...flatPointExplorer,
+  title: 'Tile explorer',
+  subtitle: 'Where one tile comes from',
+  buttonTitle: 'Tile explorer',
+  blurb: 'The explorer takes the tile under a point and shows the two grid lines that cross there, and the five whole numbers that place each of its corners.',
+  pointTitle: 'Point on the floor',
+  coordinates: [{ label: 'x', range: [-40, 40] }, { label: 'y', range: [-40, 40] }],
+  moveHint: 'Arrow keys move the point. Click or tap the picture to put it there.',
+  initialProbe: state => [state.focus[0] + 0.3, state.focus[1] + 0.2, 0, 0],
+  report: (probe, state) => explorerReport([probe[0], probe[1]], state),
+};
+
 export const world = {
   id: 'penrose',
   title: 'Penrose tilings',
@@ -281,7 +396,8 @@ export const world = {
     toward a spot. The colour schemes show the tiles' two shapes, their
     ten directions, or the layer of five-dimensional space they come from.`,
   tour,
-  shaderValues(state) {
+  explorer,
+  shaderValues(state, probe) {
     const gamma = offsets(state);
     const c = centre(gamma);
     const values = new Array(32).fill(0);
@@ -291,6 +407,14 @@ export const world = {
     values[7] = state.values[RIBBONS] > 0.5 ? 1 : 0;
     values[8] = state.values[CORNERS] > 0.5 ? 1 : 0;
     values[12] = -1;
+    // The tile under the explorer's point is lit.
+    const tile = probe && find([probe[0], probe[1]], gamma);
+    if (tile) {
+      values[12] = tile.r;
+      values[13] = tile.s;
+      values[14] = tile.kr;
+      values[15] = tile.ks;
+    }
     return values;
   },
   discreteValues: new Set([RIBBONS, CORNERS]),
