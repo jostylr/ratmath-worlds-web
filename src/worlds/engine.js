@@ -195,9 +195,16 @@ void main() {
 const PRESENT = `#version 300 es
 precision highp float;
 uniform sampler2D uScene;
+// The picture shown before this one, and how far this one has faded in
+// over it (1 shows this one alone).
+uniform sampler2D uPrevious;
+uniform vec3 uSizeAndMix;
 out vec4 fragColor;
 void main() {
   vec3 c = texelFetch(uScene, ivec2(gl_FragCoord.xy), 0).rgb;
+  if (uSizeAndMix.z < 1.0) {
+    c = mix(texture(uPrevious, gl_FragCoord.xy / uSizeAndMix.xy).rgb, c, uSizeAndMix.z);
+  }
   fragColor = vec4(mix(12.92 * c, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c)), 1.0);
 }`;
 
@@ -459,6 +466,11 @@ export function start(world) {
   const gl = canvas.getContext('webgl2', { antialias: false, alpha: false });
   const programs = {};
   let target = null;
+  /** The picture kept from before, and the fade from it under way (see keepPicture). */
+  let previous = null;
+  let blend = null;
+  let lastQuality = 2;
+  const BLEND_TIME = 250;
   let lineBuffer = null;
   let meshBuffers = null;
 
@@ -477,7 +489,9 @@ export function start(world) {
     meshBuffers = null;
     compile('scene', FULLSCREEN, world.fragment,
       ['U.resolutionAndCone', 'U.camera', 'U.focus', 'U.budget', 'U.v[0]', 'markers[0]', 'uData']);
-    compile('present', FULLSCREEN, PRESENT, ['uScene']);
+    compile('present', FULLSCREEN, PRESENT, ['uScene', 'uPrevious', 'uSizeAndMix']);
+    previous = null;
+    blend = null;
     if (world.lines) {
       compile('lines', LINE_VERTEX, LINE_FRAGMENT, ['uResolutionAndCone', 'uCamera', 'uFocus']);
       lineBuffer = { array: gl.createVertexArray(), buffer: gl.createBuffer() };
@@ -564,6 +578,67 @@ export function start(world) {
 
   let dataTexture = null;
 
+  // When the picture comes to rest it is drawn again, sharper and with its
+  // shadows. The rough picture is kept, and the fine one fades in over it
+  // in a quarter of a second, so the change does not show as a jump.
+
+  /** Keeps a copy of the picture now in the target, whatever its size. */
+  function keepPicture() {
+    if (!target) { return false; }
+    if (previous && (previous.width !== target.width || previous.height !== target.height)) {
+      gl.deleteTexture(previous.color);
+      gl.deleteFramebuffer(previous.frame);
+      previous = null;
+    }
+    if (!previous) {
+      const color = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, color);
+      gl.texStorage2D(gl.TEXTURE_2D, 1, gl.SRGB8_ALPHA8, target.width, target.height);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      const frame = gl.createFramebuffer();
+      gl.bindFramebuffer(gl.FRAMEBUFFER, frame);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, color, 0);
+      if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
+        gl.deleteTexture(color); gl.deleteFramebuffer(frame);
+        return false;
+      }
+      previous = { width: target.width, height: target.height, color, frame };
+    }
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, target.frame);
+    gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, previous.frame);
+    gl.blitFramebuffer(0, 0, target.width, target.height, 0, 0, target.width, target.height, gl.COLOR_BUFFER_BIT, gl.NEAREST);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    return true;
+  }
+
+  /** Copies the picture in the target to the screen, fading it in over the
+      one kept while a blend is under way. */
+  function present(now) {
+    let mix = 1;
+    if (blend && previous) {
+      const t = Math.min((now - blend.began) / BLEND_TIME, 1);
+      mix = t * t * (3 - 2 * t);
+      if (t >= 1) { blend = null; }
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, target.width, target.height);
+    gl.disable(gl.BLEND);
+    gl.disable(gl.DEPTH_TEST);
+    gl.useProgram(programs.present.program);
+    gl.bindVertexArray(programs.plain);
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, previous ? previous.color : target.color);
+    gl.uniform1i(programs.present.uniforms.uPrevious, 2);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, target.color);
+    gl.uniform1i(programs.present.uniforms.uScene, 0);
+    gl.uniform3f(programs.present.uniforms.uSizeAndMix, target.width, target.height, mix);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+  }
+
   function draw(now) {
     if (!graphics.ready || document.hidden || !$('error').hidden) { return; }
     const ratio = qualitySettings.ratio(canvas, moving() || isPlaying(), now);
@@ -573,6 +648,12 @@ export function start(world) {
       canvas.width = width;
       canvas.height = height;
     }
+    // Quality 1 leaves out occlusion and shadows while the picture is being moved.
+    const quality = moving() || isPlaying() || qualitySettings.mode === 'economy' ? 1 : 2;
+    // Coming to rest: keep the rough picture to fade the fine one in over.
+    if (quality === 2 && lastQuality === 1 && !reducedMotion() && keepPicture()) { blend = { began: now }; }
+    if (quality === 1) { blend = null; }
+    lastQuality = quality;
     try { prepareTarget(width, height); } catch (error) { fail(error.message); return; }
 
     const yaw = Number.isFinite(state.yaw) ? clamp(state.yaw, -10000, 10000) : world.defaults.yaw;
@@ -580,8 +661,6 @@ export function start(world) {
     const distance = Number.isFinite(state.cameraDistance)
       ? clamp(state.cameraDistance, ...distanceRange) : world.defaults.cameraDistance;
     const time = (now - began) / 1000;
-    // Quality 1 leaves out occlusion and shadows while the picture is being moved.
-    const quality = moving() || isPlaying() || qualitySettings.mode === 'economy' ? 1 : 2;
     const markers = packedMarkers(world.overlayMarkers?.(state) ?? [], distance);
 
     const resolutionAndCone = [width, height, 0.0003, verticalShift];
@@ -670,14 +749,7 @@ export function start(world) {
       gl.disable(gl.DEPTH_TEST);
     }
 
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    gl.viewport(0, 0, width, height);
-    gl.useProgram(programs.present.program);
-    gl.bindVertexArray(programs.plain);
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, target.color);
-    gl.uniform1i(programs.present.uniforms.uScene, 0);
-    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    present(now);
   }
 
   /** A flat world's own lettering over the picture, such as the numbers
@@ -1559,6 +1631,9 @@ export function start(world) {
       dirty = false;
       draw(now);
       drawLabels();
+    } else if (blend && target && $('error').hidden) {
+      // Nothing has changed but the fine picture is still fading in.
+      present(now);
     }
     requestAnimationFrame(loop);
   }
