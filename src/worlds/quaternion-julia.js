@@ -2,8 +2,8 @@
 // solid slice of a four-dimensional set. This is
 // Worlds/FourD/QuaternionJuliaWorld.swift, without its explorer; the tour's
 // words are copied from it.
-import { newState, copyState, keyframe, slider, group } from './engine.js';
-import { makeSlice, slicePoint, writeSlice } from './four-d-math.js';
+import { newState, copyState, keyframe, slider, group, Camera } from './engine.js';
+import { dot4, makeSlice, slicePoint, writeSlice } from './four-d-math.js';
 import { FRAGMENT } from './shaders/quaternion-julia.js';
 
 // Indices into the state's values.
@@ -248,6 +248,147 @@ const tour = [
   },
 ];
 
+// MARK: Explorer
+
+/** The sequence q₀, q₁, q₂, … with every square kept for display. */
+function orbit(start, c, iterations) {
+  const steps = [];
+  const most = Math.max(iterations, 1);
+  let q = start;
+  for (let k = 0; k <= most; k += 1) {
+    const squared = square(q);
+    if (Math.sqrt(lengthSquared(q)) > ESCAPE_RADIUS) {
+      steps.push({ q, squared, next: null });
+      return { steps, escapedAt: k };
+    }
+    if (k === most) {
+      steps.push({ q, squared, next: null });
+      break;
+    }
+    const next = squared.map((part, i) => part + c[i]);
+    steps.push({ q, squared, next });
+    q = next;
+  }
+  return { steps, escapedAt: null };
+}
+
+/** What the explorer says about one four-part number: QuaternionJuliaWorld.report in the app. */
+function explorerReport(start, state) {
+  const c = constant(state);
+  const s = slice(state);
+  const limit = iterationCount(state);
+  const path = orbit(start, c, limit);
+  const n = value => (!Number.isFinite(value) ? '∞'
+    : Math.abs(value) >= 1000 ? value.toExponential(1).replace('e+', 'E') : value.toFixed(3));
+  const four = q => `(${q.map(n).join(', ')})`;
+  const inSlice = q => [dot4(q, s.e1), dot4(q, s.e2), dot4(q, s.e3)];
+
+  const rows = path.steps.map((step, index) => {
+    const q = step.q;
+    let worked = [];
+    let note;
+    if (step.next) {
+      worked = [
+        ['q = (a, b, c, d)', four(q)],
+        ['a²', n(q[0] * q[0])],
+        ['b² + c² + d²', n(q[1] * q[1] + q[2] * q[2] + q[3] * q[3])],
+        ['real: a² − b² − c² − d²', n(step.squared[0])],
+        ['i: 2ab', n(step.squared[1])],
+        ['j: 2ac', n(step.squared[2])],
+        ['k: 2ad', n(step.squared[3])],
+        ['c', four(c)],
+        ['q² + c', four(step.next)],
+      ];
+      note = 'Multiplying out (a + bi + cj + dk)² gives sixteen products. i², j² and k² are each −1, which gives the real part. The mixed ones cancel in pairs, because ij = k but ji = −k, and likewise for the others. What survives is 2a times each imaginary part.';
+    } else {
+      note = path.escapedAt === index
+        ? 'The path has escaped here, so the rule is not applied again.'
+        : 'This is the last step computed. Raise “steps” to continue the path.';
+    }
+    return {
+      id: index,
+      cells: [String(index), n(q[0]), n(q[1]), n(q[2]), n(q[3]), n(Math.sqrt(lengthSquared(q)))],
+      workedTitle: `Step ${index} → ${index + 1}, worked`,
+      worked, note,
+    };
+  });
+
+  // The path, drawn where each point falls in the slice.
+  const markers = [];
+  const count = path.steps.length;
+  for (let index = 0; index < count; index += 1) {
+    let position = inSlice(path.steps[index].q);
+    let isLast = index === count - 1;
+    if (Math.hypot(...position) > 5 && index > 0) {
+      // An escaping path leaves the picture; point its last rod outward
+      // rather than at a far-off point.
+      const previous = inSlice(path.steps[index - 1].q);
+      const toward = position.map((p, i) => p - previous[i]);
+      const length = Math.hypot(...toward);
+      position = previous.map((p, i) => p + toward[i] / length * 5);
+      isLast = true;
+    }
+    const t = count > 1 ? index / (count - 1) : 0;
+    markers.push({
+      position,
+      size: index === 0 ? 1.7 : 1,
+      color: index === 0 ? [1, 1, 1] : [0.25 + 0.75 * t, 0.9 - 0.6 * t, 1.0 - 0.35 * t],
+      connectsToNext: !isLast,
+    });
+    if (isLast) { break; }
+  }
+
+  const off = dot4(start, s.n) - s.w;
+  let headline;
+  let details;
+  if (path.escapedAt !== null) {
+    headline = `Outside: escapes at step ${path.escapedAt}`;
+    details = [`|q| passed ${ESCAPE_RADIUS} after ${path.escapedAt} application${path.escapedAt === 1 ? '' : 's'} of the rule, and from there it only grows.`];
+  } else {
+    headline = `Inside, as far as ${limit} steps can tell`;
+    details = [`|q| stayed below ${ESCAPE_RADIUS} for every step. Points near the surface take longest to decide.`];
+  }
+  details.push(Math.abs(off) < 1e-6
+    ? 'The starting point is in your slice.'
+    : `The starting point is ${n(Math.abs(off))} off your slice, so the white dot marks the spot beside it.`);
+  return { headline, details, tableTitle: 'Path', columns: ['n', 'a', 'b', 'c', 'd', '|q|'], rows, markers };
+}
+
+/** The surface point under a direction from the camera, as a four-part number. */
+function surfaceUnder(direction, state) {
+  const hit = Camera.raycast(Camera.position(state), direction, state, fieldDistance);
+  return hit ? slicePoint(slice(state), hit.point) : null;
+}
+
+const explorer = {
+  title: 'Orbit explorer',
+  subtitle: 'q → q² + c, one step at a time',
+  buttonTitle: 'Orbit explorer',
+  blurb: 'The explorer follows one four-part number through the rule and shows the quaternion arithmetic of every step.',
+  pointTitle: 'Start q₀ = a + bi + cj + dk (white)',
+  coordinates: ['a', 'b (i)', 'c (j)', 'd (k)'].map(label => ({ label, range: [-1.6, 1.6] })),
+  moveHint: 'Arrow keys move the point within your slice; with Shift, ↑ and ↓ move it away and nearer. Click or tap the shape to put the point on its surface. The path is drawn where it would fall in your slice; its k parts are in the table.',
+  initialProbe(state) {
+    // Start on the surface in the middle of the view.
+    const axis = Camera.rotate([0, 0, 1], state.yaw, state.pitch);
+    return surfaceUnder(axis.map(component => -component), state) ?? slicePoint(slice(state), [0.3, 0.3, 0.2]);
+  },
+  report: (probe, state) => explorerReport(probe, state),
+  move(probe, right, up, away, state) {
+    const s = slice(state);
+    const size = 0.03 * Math.min(Math.max(state.cameraDistance / defaults.cameraDistance, 0.01), 1);
+    const axis = v => Camera.rotate(v, state.yaw, state.pitch);
+    const r = axis([1, 0, 0]), u = axis([0, 1, 0]), b = axis([0, 0, 1]);
+    const step = [0, 1, 2].map(i => (r[i] * right + u[i] * up - b[i] * away) * size);
+    return probe.map((part, i) => part + s.e1[i] * step[0] + s.e2[i] * step[1] + s.e3[i] * step[2]);
+  },
+  pick(viewPoint, state) {
+    const local = [viewPoint[0] * 0.72, viewPoint[1] * 0.72, -1.65];
+    const length = Math.hypot(...local);
+    return surfaceUnder(Camera.rotate(local.map(component => component / length), state.yaw, state.pitch), state);
+  },
+};
+
 export const world = {
   id: 'quaternion-julia',
   title: 'Quaternion Julia set',
@@ -303,6 +444,7 @@ export const world = {
     surface to orbit that spot and fly toward it. Orbit colours come
     from how close each point's path passed to the real axis.`,
   tour,
+  explorer,
   distance: fieldDistance,
   shaderValues(state) {
     const c = constant(state);
