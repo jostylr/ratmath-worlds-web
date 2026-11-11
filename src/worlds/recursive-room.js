@@ -274,6 +274,66 @@ const tour = [
 
 // MARK: World
 
+// MARK: Explorer
+
+/** What the explorer says about one point followed through the copies:
+    RecursiveRoomWorld.report in the app. */
+function explorerReport(point, state) {
+  const s = new Similarity(state);
+  const fixed = s.fixedPoint;
+  const away = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+  const rows = [];
+  let p = [point[0], point[1], point[2]];
+  for (let n = 0; n <= 8; n += 1) {
+    const turned = s.rotated(p, s.theta);
+    const scaled = turned.map(c => c * s.k);
+    const next = scaled.map((c, i) => c + s.t[i]);
+    const distance = away(p, fixed);
+    rows.push({
+      id: n,
+      cells: [String(n), Format.number(p[0], 3), Format.number(p[1], 3), Format.number(p[2], 3), Format.significant(distance, 3)],
+      workedTitle: `Copy ${n} → ${n + 1}, worked`,
+      worked: [
+        ['p', Format.vector(p)],
+        ['turn x, y by θ', Format.vector(turned)],
+        ['× k', Format.vector(scaled)],
+        ['t', Format.vector(s.t)],
+        ['S(p) = k·R·p + t', Format.vector(next)],
+        ['distance to fixed point', Format.significant(distance, 4)],
+        ['after: × k', Format.significant(away(next, fixed), 4)],
+      ],
+      note: `Turn the point about the room's long axis by θ = ${Format.degrees(s.theta, 0)}, shrink it toward the room's centre by k = ${Format.number(s.k, 2)}, then shift it by t, which carries the room's open front onto the doorway. Each step multiplies the distance to the fixed point by exactly k.`,
+    });
+    p = next;
+  }
+  return {
+    headline: `Heading for ${Format.vector(fixed, 2)}`,
+    details: [
+      'That is the fixed point, where S(x) = x: the one point that lies in every copy. Whatever point you start from, its copies close in on it.',
+      `Depth: z = t_z ⁄ (1 − k) = ${Format.number(fixed[2], 3)}. Across and up come from the same formula with complex numbers, c ⁄ (1 − k·e^(iθ)).`,
+      s.theta === 0
+        ? 'With no twist the path is a straight line.'
+        : 'With a twist the path is a spiral that turns by θ each step while shrinking by k: a logarithmic spiral.',
+    ],
+    tableTitle: 'The point in each copy', columns: ['n', 'x', 'y', 'z', 'to fixed'], rows,
+    markers: pathMarkers([point[0], point[1], point[2]], state),
+  };
+}
+
+const explorer = {
+  title: 'Path explorer',
+  subtitle: 'Follow one point through the copies',
+  buttonTitle: 'Path explorer',
+  blurb: 'The explorer applies S to one point over and over, shows the arithmetic of each step, and draws the path it takes toward the fixed point.',
+  pointTitle: 'Point p (white), in the room',
+  coordinates: [{ label: 'x', range: [-1.5, 1.5] }, { label: 'y', range: [-1, 1] }, { label: 'z', range: [-2, 2] }],
+  moveHint: 'Arrow keys move the point across the view; with Shift, ↑ and ↓ move it away and nearer. Each dot is the same point in the next copy.',
+  initialProbe: () => [0.9, 0.3, 1.0, 0],
+  report: (probe, state) => explorerReport(probe, state),
+  // The room has no surface to tap a point onto: the arrows move it.
+  move: null,
+};
+
 export const world = {
   id: 'recursive-room',
   title: 'Recursive room',
@@ -325,6 +385,7 @@ export const world = {
     other, because they really are behind the wall, not painted on it.
     Zoom moves the camera toward the middle of the room.`,
   tour,
+  explorer,
   shaderValues(state) {
     const values = new Array(32).fill(0);
     const s = new Similarity(state);

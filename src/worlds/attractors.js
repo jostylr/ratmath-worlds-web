@@ -1,7 +1,7 @@
 // Strange attractors: the Lorenz and Rössler flows, drawn as glowing paths.
 // This is Worlds/Dynamics/AttractorWorld.swift, without its explorer; the
 // tour's words are copied from it.
-import { newState, copyState, keyframe, slider, picker, toggle, readout, group } from './engine.js';
+import { newState, copyState, keyframe, slider, picker, toggle, readout, group, Format } from './engine.js';
 import { FRAGMENT } from './shaders/backdrop.js';
 
 // MARK: The two flows and how their paths are computed
@@ -180,8 +180,10 @@ const start = state => [state.values[START_X], state.values[START_X + 1], state.
 
 const delta = state => 10 ** -Math.round(state.values[DELTA_POWER]);
 
-function paths(state) {
-  cache.update({ system: flow(state), start: start(state), delta: delta(state), cloud: state.values[CLOUD] > 0.5 });
+function paths(state, probe) {
+  // With the explorer open, its point is where the paths start.
+  const from = probe ? [probe[0], probe[1], probe[2]] : start(state);
+  cache.update({ system: flow(state), start: from, delta: delta(state), cloud: state.values[CLOUD] > 0.5 });
   return cache;
 }
 
@@ -217,7 +219,7 @@ function addLine(ax, ay, az, bx, by, bz, r, g, b, alpha, width) {
 
 function lines(state, probe, clock) {
   const system = flow(state);
-  const all = paths(state);
+  const all = paths(state, probe);
   const shown = shownTime(state, clock);
   const head = Math.min(Math.trunc(shown / STEP), COUNT - 1);
   lineCount = 0;
@@ -458,6 +460,77 @@ const tour = [
   },
 ];
 
+// MARK: Explorer
+
+/** What the explorer says about two starts a hair apart: AttractorWorld.report in the app. */
+function explorerReport(probe, state) {
+  const system = flow(state);
+  const all = paths(state, probe);
+  const gap0 = delta(state);
+  const n = value => Format.number(value, 3);
+  const gapText = value => (value < 0.001 ? value.toExponential(1).replace('e-', 'E-') : n(value));
+  const at = (list, index) => [list[3 * index], list[3 * index + 1], list[3 * index + 2]];
+  const rows = [];
+  let partedAt = null;
+  for (let step = 0; step <= 20; step += 1) {
+    const t = step * 2;
+    const index = Math.min(Math.trunc(t / STEP), COUNT - 1);
+    const s = at(all.main, index);
+    const twin = at(all.twin, index);
+    const gap = Math.hypot(twin[0] - s[0], twin[1] - s[1], twin[2] - s[2]);
+    if (partedAt === null && gap > 1) { partedAt = t; }
+    const v = [0, 0, 0];
+    velocity(system, s[0], s[1], s[2], v);
+    const worked = [['state (x, y, z)', Format.vector(s, 2)]];
+    if (system.isRossler) {
+      worked.push(['ẋ = −y − z', n(v[0])], ['ẏ = x + a·y', n(v[1])], ['ż = b + z(x − c)', n(v[2])]);
+    } else {
+      worked.push(['ẋ = σ(y − x)', n(v[0])], ['ẏ = x(ρ − z) − y', n(v[1])], ['ż = xy − βz', n(v[2])]);
+    }
+    worked.push(
+      ['speed', n(Math.hypot(...v))],
+      ['twin is away by', gapText(gap)],
+      ['gap has grown by', `× ${Format.significant(gap / gap0, 3)}`]);
+    if (t > 0 && gap > 0) { worked.push(['rate: ln(growth) ⁄ t', n(Math.log(gap / gap0) / t)]); }
+    rows.push({
+      id: step,
+      cells: [String(t), n(s[0]), n(s[1]), n(s[2]), gapText(gap)],
+      workedTitle: `At time ${t}, worked`,
+      worked,
+      note: 'The three lines after the state are the rule: they give the velocity of the point at this instant. The path is built by taking a very small step in that direction and asking again. While the twins are close, their gap grows roughly like e^(rate × t), until it is as large as the attractor and can grow no more.',
+    });
+  }
+  const end = at(all.main, COUNT - 1);
+  const endTwin = at(all.twin, COUNT - 1);
+  const finalGap = Math.hypot(endTwin[0] - end[0], endTwin[1] - end[1], endTwin[2] - end[2]);
+  let headline;
+  let details;
+  if (partedAt !== null) {
+    headline = `The twins part company by time ${partedAt}`;
+    details = [
+      `They began ${gapText(gap0)} apart and are more than 1 apart by then. Before that the two paths could not be told apart by eye.`,
+      'Making the starting gap ten times smaller delays this only a little. That is why such a system cannot be forecast far ahead, however good the measurements.',
+    ];
+  } else {
+    headline = 'The twins stay together';
+    details = [`After ${DURATION} time units they are ${gapText(finalGap)} apart. With this rule nearby starts are not driven apart, or not yet.`];
+  }
+  return { headline, details, tableTitle: 'Path, and gap to its twin', columns: ['t', 'x', 'y', 'z', 'gap'], rows, markers: [] };
+}
+
+const explorer = {
+  title: 'Twin explorer',
+  subtitle: 'Two starts, a hair apart',
+  buttonTitle: 'Twin explorer',
+  blurb: 'The explorer starts two paths a tiny distance apart, lists how far apart they are as time passes, and works the rule out at any moment.',
+  pointTitle: 'Start (x, y, z)',
+  coordinates: [{ label: 'x', range: [-20, 20] }, { label: 'y', range: [-25, 25] }, { label: 'z', range: [0, 45] }],
+  moveHint: 'Arrow keys change the start: left and right move x, up and down move z; with Shift, up and down move y. The second path starts the gap away along x.',
+  initialProbe: state => [state.values[START_X], state.values[START_X + 1], state.values[START_X + 2], 0],
+  report: (probe, state) => explorerReport(probe, state),
+  move: (probe, right, up, away) => [probe[0] + right * 0.25, probe[1] + away * 0.25, probe[2] + up * 0.25, 0],
+};
+
 export const world = {
   id: 'attractors',
   title: 'Strange attractors',
@@ -528,6 +601,7 @@ export const world = {
     present state; the path behind it fades with age. Lines add their
     light, so the parts of the attractor visited most often are brightest.`,
   tour,
+  explorer,
   discreteValues: new Set([SYSTEM, PLAY, TWIN, CLOUD, ARROWS, DELTA_POWER]),
   lines,
   playback: { play: PLAY, speed: SPEED, value: TIME, rate: 6, period: DURATION + 12, maximum: DURATION },
