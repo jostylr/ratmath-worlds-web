@@ -1683,7 +1683,7 @@ export function start(world) {
         <button id="rideEnd" class="plain" aria-label="End ride">✕</button></header>
       <div class="body"><p id="rideCaption"></p></div>
       <div class="readout"><span id="rideWhere"></span><span id="rideZoom"></span></div>
-      <details id="rideSettings"><summary class="caption">Speed and depth</summary>
+      <details id="rideSettings"><summary class="caption">Settings</summary>
         ${theRide.settings.map(setting => `<label class="row" data-ride="${setting.key}">
           <span class="title">${escapeHTML(setting.title)}</span><span class="value"></span>
           <input type="range" min="${setting.range[0]}" max="${setting.range[1]}" step="any" value="${ride.settings[setting.key]}"></label>`).join('')}
