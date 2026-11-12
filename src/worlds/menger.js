@@ -2,6 +2,7 @@
 // again at every scale. This is Worlds/Menger/MengerWorld.swift, without its
 // explorer; the tour's words are copied from it.
 import { newState, copyState, keyframe, slider, readout, group, Format } from './engine.js';
+import { rideRandom, pick, nearestTurn } from './ride-support.js';
 import { FRAGMENT } from './shaders/menger.js';
 
 // Indices into the state's values.
@@ -307,6 +308,100 @@ const tour = [
   },
 ];
 
+// MARK: Ride
+
+// The ride flies the tunnels. From level 2 on, the sponge is hollow along
+// every line that runs parallel to an axis through the middle of a cube of
+// side 2 ⁄ 3: the three tunnels of that cube, or the hole where the cube was
+// cut out. Those lines cross at the 27 points whose coordinates are −2 ⁄ 3, 0
+// or 2 ⁄ 3, and the ride wanders from crossing to crossing.
+const CROSSING = 2 / 3;
+/** How far the camera sits behind the point it looks at: well inside the
+    narrowest tunnel, which is 2 ⁄ 9 across. */
+const RIDE_REACH = 0.05;
+const HEADINGS = [[1, 0, 0], [0, 0, 1], [-1, 0, 0], [0, 0, -1]];
+
+/** The view from a crossing (three whole numbers, −1 to 1), or a point
+    between two, looking along a heading. */
+function inTunnel(base, place, heading, yawNear) {
+  const state = copyState(base);
+  state.values[LEVEL] = Math.max(base.values[LEVEL], 3);
+  state.values[SLICE_OFFSET] = SLICE_DISABLED;
+  state.cameraDistance = RIDE_REACH;
+  state.focus = place.map((c, i) => c * CROSSING + heading[i] * RIDE_REACH);
+  // The camera sits behind the focus, on the side away from the heading.
+  state.yaw = nearestTurn(Math.atan2(-heading[0], -heading[2]), yawNear);
+  state.pitch = 0;
+  return state;
+}
+
+const ride = {
+  title: 'Ride',
+  note: `
+    The ride flies through the sponge's tunnels by itself, turning at the
+    crossings and rising and falling through the shafts, and never the same
+    way twice. Touching the picture pauses it.`,
+  where: state => `level ${Math.round(state.values[LEVEL])}, inside the sponge`,
+  settings: [
+    { key: 'speed', title: 'Speed', range: [0.1, 0.6], initial: 0.25, display: value => `${value.toFixed(2)} of the cube a second` },
+    { key: 'legs', title: 'Legs before a pause', range: [3, 16], initial: 8, display: value => String(Math.round(value)) },
+  ],
+  start(seed) {
+    const random = rideRandom(seed);
+    let place = null;
+    let heading = 0;
+    return {
+      next(current, settings) {
+        const speed = Math.min(Math.max(settings.speed ?? 0.25, 0.05), 2);
+        const frames = [];
+        let yaw = current.yaw;
+        const add = (state, duration, caption) => {
+          yaw = state.yaw;
+          const frame = keyframe(state, duration, 0, true);
+          if (caption) { frame.caption = caption; }
+          frames.push(frame);
+        };
+        if (!place || current.cameraDistance > 2 * RIDE_REACH) {
+          // Not in a tunnel yet: come round to the mouth of the big one and fly in.
+          place = [-1, 0, 0];
+          heading = 0;
+          const mouth = inTunnel(current, [-2.4, 0, 0], HEADINGS[0], yaw);
+          const approach = keyframe(mouth, 4.5);
+          approach.caption = 'Into the sponge by its largest tunnel, the hole left by the first cut.';
+          frames.push(approach);
+          yaw = mouth.yaw;
+          add(inTunnel(current, place, HEADINGS[0], yaw), 1.4 * CROSSING / speed);
+        }
+        const legs = Math.round(Math.min(Math.max(settings.legs ?? 8, 1), 40));
+        for (let leg = 0; leg < legs; leg += 1) {
+          // What can be done from here: go on, turn, or take the shaft.
+          const ahead = place.map((c, i) => c + HEADINGS[heading][i]);
+          const choices = [];
+          if (ahead.every(c => Math.abs(c) <= 1)) { choices.push('on', 'on', 'on'); }
+          choices.push('left', 'right');
+          if (place[1] < 1) { choices.push('up'); }
+          if (place[1] > -1) { choices.push('down'); }
+          const choice = pick(random, choices);
+          if (choice === 'left' || choice === 'right') {
+            heading = (heading + (choice === 'left' ? 3 : 1)) % 4;
+            add(inTunnel(current, place, HEADINGS[heading], yaw), 0.45 / speed,
+              leg === 0 ? 'At every crossing three tunnels meet, one along each direction of space.' : undefined);
+          } else if (choice === 'up' || choice === 'down') {
+            place = [place[0], place[1] + (choice === 'up' ? 1 : -1), place[2]];
+            add(inTunnel(current, place, HEADINGS[heading], yaw), CROSSING / speed,
+              choice === 'up' ? 'Up a shaft: the tunnels run upright as well as level.' : 'Down a shaft, to the tunnels of the floor below.');
+          } else {
+            place = ahead;
+            add(inTunnel(current, place, HEADINGS[heading], yaw), CROSSING / speed,
+              leg === 0 ? 'Every wall is pierced by smaller tunnels, and those by smaller ones still.' : undefined);
+          }
+        }
+        return frames;
+      },
+    };
+  },
+};
+
 // MARK: Explorer
 
 /** The level-k cell that contains a point: one of the 3ᵏ × 3ᵏ × 3ᵏ cubes of
@@ -450,6 +545,7 @@ export const world = {
     Colour shows which level carved the wall you are looking at.`,
   tour,
   explorer,
+  ride,
   shaderValues(state, probe, row) {
     const values = [...state.values];
     // Light the cell that holds the explorer's point at the selected level

@@ -3,6 +3,7 @@
 // the tour's words are copied from it.
 import { newState, copyState, keyframe, toggle, movePad, readout, group, Camera } from './engine.js';
 import { FRAGMENT } from './shaders/spherical-space.js';
+import { rideRandom, pick } from './ride-support.js';
 
 // Indices into the state's values: the frame takes the first sixteen.
 const ALONG = 16;
@@ -191,6 +192,57 @@ const tour = [
 
 // MARK: World
 
+// MARK: Ride
+
+// The ride is a wandering walk: turn to face somewhere new, walk straight
+// that way through a few rooms, and again. Now and then it walks the whole
+// way round a great circle, and arrives where it set off.
+const ride = {
+  title: 'Ride',
+  note: `
+    The ride walks through the rooms by itself: it turns to face a new way,
+    walks straight on for a few rooms, and turns again. Now and then it goes
+    all the way round. Touching the picture pauses it.`,
+  where: state => `${degrees(distanceFromHome(state))} from home`,
+  settings: [
+    { key: 'speed', title: 'Speed', range: [0.1, 0.8], initial: 0.28, display: value => `${(value * 180 / Math.PI).toFixed(0)}° a second` },
+  ],
+  start(seed) {
+    const random = rideRandom(seed);
+    let round = 0;
+    return {
+      next(current, settings) {
+        const speed = Math.min(Math.max(settings.speed ?? 0.28, 0.02), 3);
+        // Where the walk has got to becomes the place to walk on from.
+        const standing = copyState(current);
+        store(frame(current), standing);
+        const yaw = current.yaw + (random() * 2 - 1) * 1.0;
+        const pitch = (random() * 2 - 1) * 0.3;
+        standing.values[ALONG] = 0;
+        standing.values[HEADING_YAW] = yaw;
+        standing.values[HEADING_PITCH] = pitch;
+        const facing = copyState(standing);
+        facing.yaw = yaw;
+        facing.pitch = pitch;
+        const allRound = round % 5 === 4;
+        const distance = allRound ? 2 * Math.PI : Math.PI / 5 * pick(random, [1, 2, 2, 3, 4]);
+        const arrived = copyState(facing);
+        arrived.values[ALONG] = distance;
+        const turn = keyframe(facing, 1.8, 0, true);
+        turn.caption = allRound
+          ? 'Straight on, all the way round: after ten rooms the walk arrives where it set off, from behind.'
+          : pick(random, [
+            'A wandering walk. Every room is the same: twelve pentagon walls, three rooms round each beam.',
+            'There are only 120 rooms. Walk far enough and you start meeting them again.',
+            'The far beams swell as they recede: past a quarter of the way round, farther looks larger.',
+          ]);
+        round += 1;
+        return [keyframe(standing, 0, 0, true), turn, keyframe(arrived, distance / speed, 0.6, true)];
+      },
+    };
+  },
+};
+
 // MARK: Explorer
 
 /** The four mirrors of the symmetry group H4: unit normals whose angles are
@@ -346,6 +398,7 @@ export const world = {
     the middle of the home room.`,
   tour,
   explorer,
+  ride,
   shaderValues(state) {
     const f = frame(state);
     const values = new Array(32).fill(0);

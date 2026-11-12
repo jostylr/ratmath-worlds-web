@@ -4,6 +4,7 @@
 // copied from it.
 import { newState, copyState, keyframe, movePad, readout, group } from './engine.js';
 import { FRAGMENT } from './shaders/escher.js';
+import { rideRandom, pick } from './ride-support.js';
 
 // MARK: Geometry of the three staircases and their doors; mirrors Escher.metal.
 
@@ -486,6 +487,55 @@ const tour = [
   },
 ];
 
+// MARK: Ride
+
+// The ride climbs: a landing or three up whichever stairs it is on, and
+// then, where the landing has a door, more often than not through it, onto
+// another face of the stairs.
+const ride = {
+  title: 'Ride',
+  note: `
+    The ride climbs the stairs by itself and takes doors as it meets them,
+    so it wanders through all six realms. Touching the picture pauses it.`,
+  where: state => `on ${REALM_NAMES[realm(state)].toLowerCase()}; up is ${upName(state)}`,
+  settings: [
+    { key: 'speed', title: 'Speed', range: [0.5, 2], initial: 1, display: value => `${value.toFixed(1)}× walking pace` },
+    { key: 'doors', title: 'Doors taken', range: [0, 1], initial: 0.65, display: value => `${Math.round(value * 100)} in 100` },
+  ],
+  start(seed) {
+    const random = rideRandom(seed);
+    return {
+      next(current, settings) {
+        const speed = Math.min(Math.max(settings.speed ?? 1, 0.2), 5);
+        const frames = [];
+        // Whatever was under way, the ride sets off from the nearest landing.
+        let here = copyState(current);
+        if (here.values[DOOR] > 0.5) { here = through(here); }
+        here.values[DOOR] = 0;
+        const from = at(here, landing(here), 0, 0.05, chartIndex(here), sideIndex(here));
+        const settle = keyframe(from, 1.6 / speed, 0, true);
+        settle.caption = `Climbing the ${REALM_NAMES[realm(from)].toLowerCase()} stairs. The flights overhead and alongside are other faces of the same three staircases.`;
+        frames.push(settle);
+        const flights = pick(random, [1, 1, 2, 3]);
+        const top = at(from, landing(from) + flights, 0, 0.05, chartIndex(from), sideIndex(from));
+        frames.push(keyframe(top, 2.6 * flights / speed, 0, true));
+        const door = partner(chartIndex(top), landing(top), sideIndex(top));
+        if (door && random() < Math.min(Math.max(settings.doors ?? 0.65, 0), 1)) {
+          const [facing, inDoor, beyond, looking] = passage(top, (random() * 2 - 1) * 0.8, (random() * 2 - 1) * 0.15);
+          facing.duration = 1.8 / speed;
+          facing.hold = 0.6;
+          facing.caption = `A door framed in ${REALM_NAMES[2 * door.chart + door.side].toLowerCase()}: it leads there, and rolls you over on the way.`;
+          inDoor.duration = 6.5 / speed;
+          looking.duration = 3 / speed;
+          looking.caption = `Now on ${REALM_NAMES[2 * door.chart + door.side].toLowerCase()}. Nothing moved: the stairs you left are still there, sideways or overhead.`;
+          frames.push(facing, inDoor, beyond, looking);
+        }
+        return frames;
+      },
+    };
+  },
+};
+
 // MARK: Explorer
 
 /** The turn a door gives to directions in the space itself, as its three
@@ -645,6 +695,7 @@ export const world = {
     Reset view returns you to the wooden stairs where you began.`,
   tour,
   explorer,
+  ride,
   shaderValues(state) {
     // The zoom, then the camera's right, up, forward and position.
     const c = camera(state);

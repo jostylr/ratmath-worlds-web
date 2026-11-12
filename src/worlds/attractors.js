@@ -3,6 +3,7 @@
 // tour's words are copied from it.
 import { newState, copyState, keyframe, slider, picker, toggle, readout, group, Format } from './engine.js';
 import { FRAGMENT } from './shaders/backdrop.js';
+import { rideRandom, pick } from './ride-support.js';
 
 // MARK: The two flows and how their paths are computed
 
@@ -460,6 +461,85 @@ const tour = [
   },
 ];
 
+// MARK: Ride
+
+// The ride follows the moving point round the attractor: the camera keeps it
+// near the middle of the view from close by, and turns slowly about it. Time
+// is moved by the ride, a stretch at a time; when the stored path runs out,
+// the ride starts it afresh from a little way back, so the trail carries on.
+const RIDE_STRETCH = 8;
+const RIDE_TRAIL = 6;
+const RIDE_CAPTIONS = [
+  'Riding the path. It loops round one centre, crosses over, and loops round the other.',
+  'How many loops it makes on each side before crossing follows no pattern at all.',
+  'The path never crosses itself and never closes up, however long you ride.',
+  'Nothing here is random: the same start always gives this same ride.',
+];
+
+const ride = {
+  title: 'Ride',
+  note: `
+    The ride follows the point along its path, from close by, for as long as
+    you like. Touching the picture pauses it.`,
+  where: state => `time ${state.values[TIME].toFixed(1)}`,
+  settings: [
+    { key: 'speed', title: 'Speed', range: [0.2, 1.5], initial: 0.5, display: value => `${value.toFixed(1)} time units a second` },
+    { key: 'distance', title: 'How close', range: [1.3, 4], initial: 2.1, display: value => value.toFixed(1) },
+  ],
+  start(seed) {
+    const random = rideRandom(seed);
+    const points = new Float64Array(3 * COUNT);
+    const P3 = [0, 0, 0];
+    let round = 0;
+    let turning = 1;
+    return {
+      next(current, settings) {
+        const speed = Math.min(Math.max(settings.speed ?? 0.5, 0.05), 5);
+        const distance = Math.min(Math.max(settings.distance ?? 2.1, 1.2), 12);
+        const system = flow(current);
+        const frames = [];
+        const base = copyState(current);
+        base.values[PLAY] = 0;
+        base.values[ARROWS] = 0;
+        let from = start(base);
+        let time = Math.min(Math.max(base.values[TIME], 0), DURATION);
+        path(system, from, points);
+        if (time > DURATION - RIDE_STRETCH) {
+          // The stored path is nearly used up: begin it again from a little
+          // way back along itself, which leaves the picture as it is.
+          const index = Math.trunc((time - RIDE_TRAIL) / STEP);
+          from = [points[3 * index], points[3 * index + 1], points[3 * index + 2]];
+          for (let i = 0; i < 3; i += 1) { base.values[START_X + i] = from[i]; }
+          time = RIDE_TRAIL;
+          base.values[TIME] = time;
+          path(system, from, points);
+          frames.push(keyframe(base, 0, 0, true));
+        }
+        if (round % 3 === 0) { turning = pick(random, [-1, 1]); }
+        const pitch = -0.3 + 0.5 * random();
+        const pieces = Math.round(RIDE_STRETCH / 0.25);
+        for (let piece = 1; piece <= pieces; piece += 1) {
+          const t = time + RIDE_STRETCH * piece / pieces;
+          const index = Math.min(Math.trunc(t / STEP), COUNT - 1);
+          scene(system, points[3 * index], points[3 * index + 1], points[3 * index + 2], P3);
+          const state = copyState(base);
+          state.values[TIME] = t;
+          // The point is kept near the middle, the attractor's centre a little in view.
+          state.focus = [0.75 * P3[0], 0.75 * P3[1], 0.75 * P3[2]];
+          state.cameraDistance = distance;
+          state.yaw = current.yaw + turning * 0.45 * piece / pieces;
+          state.pitch = current.pitch + (pitch - current.pitch) * piece / pieces;
+          const frame = keyframe(state, RIDE_STRETCH / pieces / speed, 0, true);
+          if (piece === 1) { frame.caption = RIDE_CAPTIONS[round % RIDE_CAPTIONS.length]; }
+          frames.push(frame);
+        }
+        round += 1;
+        return frames;
+      },
+    };
+  },
+};
+
 // MARK: Explorer
 
 /** What the explorer says about two starts a hair apart: AttractorWorld.report in the app. */
@@ -602,6 +682,7 @@ export const world = {
     light, so the parts of the attractor visited most often are brightest.`,
   tour,
   explorer,
+  ride,
   discreteValues: new Set([SYSTEM, PLAY, TWIN, CLOUD, ARROWS, DELTA_POWER]),
   lines,
   playback: { play: PLAY, speed: SPEED, value: TIME, rate: 6, period: DURATION + 12, maximum: DURATION },

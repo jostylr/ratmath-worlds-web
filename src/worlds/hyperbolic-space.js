@@ -5,6 +5,7 @@ import {
   newState, copyState, keyframe, slider, picker, toggle, movePad, readout, group, Camera, Format,
 } from './engine.js';
 import { FRAGMENT } from './shaders/hyperbolic-space.js';
+import { rideRandom, pick } from './ride-support.js';
 
 // MARK: Arithmetic of hyperbolic 3-space
 //
@@ -458,6 +459,56 @@ const tour = [
 
 // MARK: World
 
+// MARK: Ride
+
+// The ride is a wandering walk: turn to face somewhere new, walk straight
+// that way for a room or three, and again.
+const ride = {
+  title: 'Ride',
+  note: `
+    The ride walks through the rooms by itself: it turns to face a new way,
+    walks straight on for a room or three, and turns again. Watch the gold
+    ball that marks home. Touching the picture pauses it.`,
+  where(state) {
+    const home = vector(HOME, state);
+    return Math.abs(home[3]) < HOME_LIMIT
+      ? `${Format.number(Hyp3.distance(body(state).position, home), 2)} from home` : 'far from home';
+  },
+  settings: [
+    { key: 'speed', title: 'Speed', range: [0.1, 1], initial: 0.35, display: value => `${value.toFixed(2)} a second` },
+  ],
+  start(seed) {
+    const random = rideRandom(seed);
+    return {
+      next(current, settings) {
+        const speed = Math.min(Math.max(settings.speed ?? 0.35, 0.02), 3);
+        // Where the walk has got to becomes the place to walk on from, and
+        // is swapped for the matching place in the central room.
+        const standing = copyState(current);
+        walk([0, 0, -1], 0, standing, [0, 0, 0, 0]);
+        const yaw = current.yaw + (random() * 2 - 1) * 1.1;
+        const pitch = (random() * 2 - 1) * 0.35;
+        const facing = gliding(standing, Camera.rotate([0, 0, -1], yaw, pitch), 0);
+        facing.yaw = yaw;
+        facing.pitch = pitch;
+        // A room is about 1.06 across; rooms that reach infinity are walked
+        // more warily.
+        const rooms = room(current).around >= 6 ? 1 : pick(random, [1, 2, 2, 3]);
+        const distance = 1.06 * rooms;
+        const arrived = copyState(facing);
+        arrived.values[GLIDE] = distance;
+        const turn = keyframe(facing, 1.8, 0, true);
+        turn.caption = pick(random, [
+          'A wandering walk. Nothing turns you, yet the rooms seem to swing as you pass.',
+          'A few rooms on, home is already a speck: here things shrink with distance far faster than in flat space.',
+          'There is room for thousands of rooms within four steps of home, so a walk that wanders is hard to retrace.',
+        ]);
+        return [keyframe(gliding(standing, [0, 0, -1], 0), 0, 0, true), turn, keyframe(arrived, distance / speed, 0.6, true)];
+      },
+    };
+  },
+};
+
 // MARK: Explorer
 
 const BALL_RADIUS = 0.10;
@@ -637,6 +688,7 @@ export const world = {
     which of the cube's three directions they run along.`,
   tour,
   explorer,
+  ride,
   shaderValues(state, probe) {
     const r = room(state);
     const f = eyes(state);

@@ -88,8 +88,12 @@ world's `explorer`, which has the same fields as the app's `WorldExplorer`;
 each world's report is carried over from its Swift file. The Mandelbulb's
 explorer is its page's own.
 
-Every world has a ride. Where a world has none of its own (only the Mandelbrot
-set does so far), the ride goes round its sights, one after another, with
+Every world has a ride. Six find their own way and never repeat: the
+Mandelbrot set dives into its border, the Menger sponge is flown through by
+its tunnels, the Lorenz attractor is ridden along its path, spherical space
+and the hyperbolic room are wandered through on foot, and the Escher stairs
+are climbed, doors and all (`?ride=7` gives the same route every time). In
+the other worlds the ride goes round the sights, one after another, with
 settings for the pace and the pause at each. When a picture comes to rest, the
 sharper drawing of it fades in over the rough one in a quarter of a second.
 

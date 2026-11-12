@@ -208,3 +208,20 @@ for (const world of ['logistic', 'newton', 'newton-lab', 'henon', 'chaos-game', 
     expect(errors).toEqual([]);
   });
 }
+
+// Five worlds have a ride that finds its own way, as the Mandelbrot set does.
+for (const world of ['menger', 'attractors', 'spherical-space', 'hyperbolic-space', 'escher']) {
+  test(`${world}: its own ride sets off, moves, and ends cleanly`, async ({ page }) => {
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await page.goto(`/${world}.html?ride=7`); await ready(page);
+    await expect(page.locator('#rideCaption')).not.toBeEmpty();
+    // It is not the ride round the sights, whose captions count them off.
+    await expect(page.locator('#rideCaption')).not.toContainText(' of ');
+    const before = await page.evaluate(() => location.hash);
+    await expect.poll(() => page.evaluate(() => location.hash), { timeout: 15000 }).not.toBe(before);
+    await page.getByRole('button', { name: 'End ride', exact: true }).click();
+    await expect(page.locator('#tourCard')).toBeHidden();
+    expect(errors).toEqual([]);
+  });
+}
